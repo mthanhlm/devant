@@ -1,0 +1,26 @@
+{
+  "name": "devant",
+  "owner": {
+    "name": "mthanhlm"
+  },
+  "description": "Devant — a single-command, intent-aware coding companion for Claude Code: codegraph-aware, owns a local intent graph (vision/direction/decisions/constraints), knows what to do and what NOT to do, lean and fast. All state stays local and is never committed.",
+  "plugins": [
+    {
+      "name": "devant",
+      "source": "./",
+      "description": "An intent-aware coding teammate: onboards by scanning the repo with codegraph, captures the project's vision/direction/non-goals/rules as a local intent graph you own, grounds answers and edits in both, pushes back on debt before it lands, and stays out of your repo. One command, ceremony scaled to blast radius.",
+      "version": "0.2.0",
+      "category": "workflow",
+      "keywords": [
+        "codegraph",
+        "intent",
+        "companion",
+        "architecture",
+        "guardrails",
+        "technical-debt",
+        "lean",
+        "local-only"
+      ]
+    }
+  ]
+}

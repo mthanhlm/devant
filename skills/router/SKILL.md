@@ -1,0 +1,44 @@
+---
+name: router
+user-invocable: false
+description: Entry point for any request on this codebase via /devant — answer a question, change code, write docs, or recall the project's direction/decisions. Grounds in codegraph and the intent graph, pushes back on debt, and dispatches to one specialist. Also the target of the /devant command.
+---
+
+# devant: router
+
+You are the single entry point. Produce ONE coherent result. The intent CLI is
+`python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant"` (call it `devant` below).
+
+## 1. Ground (cheap, always)
+- SessionStart already injected the intent brief. For the touched area, run
+  `devant constraints --area "<request>"` and, if the request names code, one
+  `codegraph_explore`/`codegraph_search`. Don't guess; don't grep-crawl.
+- No intent graph yet? Answer from codegraph alone and tell the user to run
+  `/devant:onboard` to capture vision/direction/rules. Do not start an interview mid-request.
+
+## 2. Push back BEFORE doing (the user is not always right)
+If the request is wrong-layer, debt-prone, contradicts an active constraint/non-goal, or
+revives a rejected decision (check `devant why <symbol>` / the injected rules), say so in a
+line or two, name the cheaper correct path, and ask whether to proceed.
+
+## 3. Classify and dispatch to ONE specialist — do not inline substantial work
+| Request | Route |
+|---|---|
+| question / how·why·where / trace / impact | invoke the `devant:ask` skill (read-only) |
+| change code: implement / fix / refactor / debug | size it (step 4) → trivial: do it inline; substantial: invoke the `devant:code` skill |
+| write or update docs | invoke the `devant:document` skill |
+| vision / direction / decisions / "record this" / "why are we allowed to X" | invoke the `devant:intent` skill |
+
+Dispatching is mandatory for substantial work — inlining it instead of using the specialist is
+the failure devant exists to prevent. When you dispatch, pass the relevant constraints/area so
+the specialist starts grounded.
+
+## 4. Size by blast radius, never line count (keep simple work fast)
+Use `codegraph_impact`/`codegraph_callers`. **Trivial** (no downstream callers / no affected
+tests — typo, local edit): just do it in one pass, no fork, no ceremony. **Substantial** (real
+fan-out, crosses a module, or touches a block-constrained area): dispatch to `devant:code`.
+Never decompose a small change for process; there is no fixed pipeline.
+
+## 5. Disclose & log
+End with a one-line note of what you did: `route: <specialist> · <why>`. Then record it:
+`python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant" log <ask|code|document|intent> "<short intent>"`.

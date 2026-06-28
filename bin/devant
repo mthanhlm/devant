@@ -1,0 +1,994 @@
+#!/usr/bin/env python3
+"""devant — the local intent graph CLI.
+
+A private SQLite knowledge graph of project intent (vision / direction / goals /
+ideas / decisions / constraints / non-goals) with typed relationships, linked to
+code symbols via codegraph. Stdlib only. Stored at <project>/.devant/intent.db
+and never committed (the SessionStart hook excludes it via .git/info/exclude).
+
+Read commands degrade quietly when the graph does not exist yet.
+"""
+import argparse
+import functools
+import json
+import os
+import re
+import shutil
+import sqlite3
+import subprocess
+import sys
+import time
+
+KINDS = ["vision", "direction", "goal", "idea", "decision", "constraint", "nongoal", "note"]
+PREFIX = {
+    "vision": "vision", "direction": "dir", "goal": "goal", "idea": "idea",
+    "decision": "dec", "constraint": "con", "nongoal": "nongoal", "note": "note",
+}
+EDGE_KINDS = ["refines", "realizes", "supersedes", "rejects", "establishes", "constrains", "relates"]
+SPECIALISTS = ["ask", "code", "document", "intent", "onboard"]
+
+
+# ---------------------------------------------------------------- location/db
+
+def project_dir():
+    p = os.environ.get("CLAUDE_PROJECT_DIR")
+    if p and os.path.isdir(p):
+        return p
+    d = os.getcwd()
+    while d and d != "/":
+        if os.path.isdir(os.path.join(d, ".git")) or os.path.isdir(os.path.join(d, ".devant")):
+            return d
+        nd = os.path.dirname(d)
+        if nd == d:
+            break
+        d = nd
+    return os.getcwd()
+
+
+def db_path(args):
+    if getattr(args, "db", None):
+        return args.db
+    return os.path.join(project_dir(), ".devant", "intent.db")
+
+
+def connect(args, create=False):
+    path = db_path(args)
+    if create:
+        d = os.path.dirname(path)
+        if d:
+            os.makedirs(d, exist_ok=True)
+    elif not os.path.exists(path):
+        return None
+    conn = sqlite3.connect(path, timeout=5.0)
+    conn.row_factory = sqlite3.Row
+    try:  # survive parallel hooks/tool calls hitting the store at once
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.Error:
+        pass
+    ensure_schema(conn)
+    return conn
+
+
+def ensure_schema(conn):
+    conn.executescript(
+        """
+    CREATE TABLE IF NOT EXISTS node(
+      id TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL,
+      body TEXT, status TEXT DEFAULT 'active', meta TEXT, created TEXT);
+    CREATE INDEX IF NOT EXISTS node_kind ON node(kind);
+    CREATE TABLE IF NOT EXISTS edge(
+      src TEXT NOT NULL, kind TEXT NOT NULL, dst TEXT NOT NULL, note TEXT,
+      PRIMARY KEY(src, kind, dst));
+    CREATE INDEX IF NOT EXISTS edge_dst ON edge(dst);
+    CREATE TABLE IF NOT EXISTS code_link(
+      node TEXT NOT NULL, relation TEXT NOT NULL, symbol TEXT, path TEXT,
+      cg_id TEXT, note TEXT, PRIMARY KEY(node, relation, symbol, path));
+    CREATE INDEX IF NOT EXISTS code_link_symbol ON code_link(symbol);
+    CREATE INDEX IF NOT EXISTS code_link_path ON code_link(path);
+    """
+    )
+    conn.commit()
+
+
+# ------------------------------------------------------------------- helpers
+
+def now():
+    return time.strftime("%Y-%m-%d")
+
+
+def load_meta(row):
+    try:
+        return json.loads(row["meta"]) if row["meta"] else {}
+    except Exception:
+        return {}
+
+
+def next_id(conn, kind):
+    pre = PREFIX[kind]
+    n = 0
+    for r in conn.execute("SELECT id FROM node WHERE kind=?", (kind,)).fetchall():
+        m = re.search(r"(\d+)$", r["id"])
+        if m:
+            n = max(n, int(m.group(1)))
+    return "%s-%03d" % (pre, n + 1)
+
+
+@functools.lru_cache(maxsize=512)
+def _glob_to_re(glob):
+    # Real glob semantics: '*' does NOT cross '/', '**' (and '**/') does, '?' is one non-slash.
+    out, i, n = [], 0, len(glob)
+    while i < n:
+        if glob.startswith("**/", i):
+            out.append("(?:.*/)?"); i += 3
+        elif glob.startswith("**", i):
+            out.append(".*"); i += 2
+        elif glob[i] == "*":
+            out.append("[^/]*"); i += 1
+        elif glob[i] == "?":
+            out.append("[^/]"); i += 1
+        else:
+            out.append(re.escape(glob[i])); i += 1
+    return re.compile("^" + "".join(out) + "$")
+
+
+def path_match(path, glob):
+    if not path or not glob:
+        return False
+    return _glob_to_re(glob).match(path) is not None
+
+
+def rel_to_project(f, proj):
+    if not f:
+        return ""
+    try:
+        return os.path.relpath(os.path.abspath(f), proj).replace("\\", "/")
+    except Exception:
+        return f.replace("\\", "/")
+
+
+def is_under(rel, top):
+    if rel.startswith("./"):
+        rel = rel[2:]
+    return rel == top or rel.startswith(top + "/")
+
+
+STOPWORDS = set((
+    "the and for this that with you your are not use can how why what where does did "
+    "was has have had will would should could about into over from when which who any "
+    "all but our out via add fix get set let its new now then than them they need want "
+    "make code file files test help please change update remove delete create build run "
+    "the a an to of in on at by is it be do we i me my so or if as no yes also just like"
+).split())
+
+
+def _content_tokens(s):
+    # Meaningful tokens for relevance matching: drop short words and English stopwords
+    # so unrelated constraints don't surface just because two strings share 'the'.
+    return set(w for w in re.findall(r"[a-z0-9_]+", (s or "").lower()) if len(w) >= 3 and w not in STOPWORDS)
+
+
+def first_forbid_hit(content, patterns):
+    for p in patterns:
+        if not p:
+            continue
+        # Literal, word-boundary match FIRST so 'import db' doesn't fire on 'import dbutils'
+        # and 'config.json' isn't mis-read as a regex matching 'configXjson'.
+        left = r"\b" if (p[:1].isalnum() or p[:1] == "_") else ""
+        right = r"\b" if (p[-1:].isalnum() or p[-1:] == "_") else ""
+        if re.search(left + re.escape(p) + right, content):
+            return p
+        # Only if the literal didn't hit and it looks like a regex, honor it as one.
+        if re.search(r"[\\^$.|?*+()\[\]{}]", p):
+            try:
+                if re.search(p, content):
+                    return p
+            except re.error:
+                pass
+    return None
+
+
+SECRET_PATTERNS = [
+    (r"-----BEGIN [A-Z ]*PRIVATE KEY-----", "private key block", "deny"),
+    (r"(?<![A-Za-z0-9])AKIA[0-9A-Z]{16}", "AWS access key id", "deny"),
+    # left boundary so 'sk-' doesn't match inside 'task-…'/'risk-…' etc.
+    (r"(?<![A-Za-z0-9_-])(ghp_|gho_|github_pat_|xox[baprs]-|sk-ant-|sk_live_|sk-|AIza|glpat-)[A-Za-z0-9_-]{16,}", "provider API token", "deny"),
+    (r"eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]+", "JWT", "ask"),
+    (r"(?i)\b(postgres|postgresql|mysql|mongodb(\+srv)?|redis|amqps?)://[^\s:@/]+:[^\s:@/${}]{3,}@", "connection string with password", "ask"),
+    (r"(?i)(api[_-]?key|secret|token|password|passwd|access[_-]?key)\s*[:=]\s*['\"][A-Za-z0-9_\-./+]{12,}['\"]",
+     "hard-coded credential", "ask"),
+    # Env-style assignment: UPPER_SNAKE name (no `i` flag, so lowercase code vars like
+    # `token = get_token()` don't match) assigned a literal value (not $VAR, {{tpl}}, a call,
+    # an attribute read, or os.environ/getenv/process.env).
+    (r"(?m)^[ \t]*(?:export[ \t]+)?[A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN|APIKEY|API_KEY|PASSWD|ACCESS_KEY)[A-Z0-9_]*[ \t]*=[ \t]*(?![\"']?\$|[\"']?\{\{|os\.|getenv|process\.env|[A-Za-z_][A-Za-z0-9_.]*[ \t]*[(\[])[^\s#]{8,}", "credential in env assignment", "ask"),
+]
+
+# Fixture/example context where credential-shaped strings are usually placeholders: 'ask'-severity
+# hits are suppressed here and non-private-key 'deny' hits are downgraded to 'ask'. Deliberately
+# NARROW — .md/.txt/docs are real config homes, so secrets there are still flagged.
+DOC_TEST_CTX = re.compile(
+    r"\.(example|sample|dist|template)$"
+    r"|(^|/)(tests?|spec|specs|fixtures?|testdata|examples?|mocks?|__tests__)/"
+    r"|(^|/)(test_|conftest)|(_test|_spec|\.test|\.spec)\."
+)
+
+
+def secret_like(content):
+    if not content:
+        return None
+    for pat, label, sev in SECRET_PATTERNS:
+        if re.search(pat, content):
+            return (label, sev)
+    return None
+
+
+def cg_available():
+    """True if the codegraph CLI is usable (and not disabled)."""
+    return os.environ.get("DEVANT_CODEGRAPH", "on") != "off" and shutil.which("codegraph") is not None
+
+
+def cg_resolve(symbol):
+    """Resolve a symbol to {filePath, id, qualifiedName} via codegraph, or None."""
+    if not cg_available():
+        return None
+    try:
+        out = subprocess.run(
+            ["codegraph", "query", symbol, "-j", "-l", "1"],
+            capture_output=True, text=True, timeout=20,
+        )
+        data = json.loads(out.stdout)
+    except Exception:
+        return None
+    items = data if isinstance(data, list) else (data.get("results") or data.get("nodes") or [])
+    if not items:
+        return None
+    it = items[0]
+    node = it.get("node") if isinstance(it.get("node"), dict) else it  # `codegraph query -j` nests fields under .node
+    return {
+        "filePath": node.get("filePath") or node.get("file") or node.get("path"),
+        "id": node.get("id"),
+        "qualifiedName": node.get("qualifiedName") or node.get("name"),
+    }
+
+
+# -------------------------------------------------------------- write commands
+
+def _insert_node(conn, nid, kind, title, body, status, meta):
+    """Insert/update a node. Explicit id -> upsert. Auto id -> INSERT with collision-retry so
+    parallel processes can't compute the same id and clobber each other (the next_id race)."""
+    if nid is not None:
+        conn.execute(
+            "INSERT OR REPLACE INTO node(id,kind,title,body,status,meta,created) "
+            "VALUES(?,?,?,?,?,?,COALESCE((SELECT created FROM node WHERE id=?),?))",
+            (nid, kind, title, body, status, meta, nid, now()))
+        conn.commit()
+        return nid
+    for _ in range(64):
+        cand = next_id(conn, kind)
+        try:
+            conn.execute(
+                "INSERT INTO node(id,kind,title,body,status,meta,created) VALUES(?,?,?,?,?,?,?)",
+                (cand, kind, title, body, status, meta, now()))
+            conn.commit()
+            return cand
+        except sqlite3.IntegrityError:
+            conn.rollback()
+    raise sqlite3.IntegrityError("could not allocate a unique id for kind %s" % kind)
+
+
+def cmd_add_node(args):
+    conn = connect(args, create=True)
+    # Updating an existing node? Start from its meta and only override what's passed,
+    # so e.g. re-titling a constraint never silently drops its forbid/applies/severity.
+    existing = conn.execute("SELECT * FROM node WHERE id=?", (args.id,)).fetchone() if args.id else None
+    base = load_meta(existing) if (existing and existing["kind"] == args.kind) else {}
+    meta = dict(base)
+    if args.meta:
+        try:
+            meta.update(json.loads(args.meta))
+        except (ValueError, TypeError):
+            sys.stderr.write("devant: --meta must be valid JSON.\n")
+            return 2
+    if args.kind == "constraint":
+        if args.applies:
+            meta["applies_to_paths"] = args.applies
+        if args.forbid:
+            meta["forbid"] = args.forbid
+        if args.exempt:
+            meta["exempt_paths"] = args.exempt
+        if args.expected:
+            meta["expected"] = args.expected
+        if args.severity:
+            meta["severity"] = args.severity
+        meta.setdefault("severity", "warn")
+        if base and base.get("severity") == "block" and meta.get("severity") != "block":
+            sys.stderr.write("devant: note — downgrading constraint %s from block to %s.\n" % (args.id, meta.get("severity")))
+    if args.kind == "decision":
+        if args.rejected:
+            meta["rejected"] = args.rejected
+        if args.why_rejected:
+            meta["why_rejected"] = args.why_rejected
+    # Keep an existing rationale on update, so re-titling a rule doesn't demand re-typing --body.
+    body = args.body
+    if not (body and body.strip()) and existing and existing["kind"] == args.kind:
+        body = existing["body"]
+    # NM5 write-hygiene: a rule without a rationale rots silently.
+    if args.kind in ("decision", "constraint") and not (body and body.strip()):
+        sys.stderr.write("devant: %s nodes require a non-empty --body (the rationale).\n" % args.kind)
+        return 2
+    nid = _insert_node(conn, args.id, args.kind, args.title, body, args.status or "active",
+                       json.dumps(meta) if meta else None)
+    if args.kind == "constraint":
+        _warn_overlap(conn, nid, meta.get("applies_to_paths") or [])
+    print(nid)
+    return 0
+
+
+def _warn_overlap(conn, nid, applies):
+    if not applies:
+        return
+    for c in conn.execute(
+        "SELECT * FROM node WHERE kind='constraint' AND status='active' AND id!=?", (nid,)
+    ).fetchall():
+        other = load_meta(c).get("applies_to_paths") or []
+        if set(other) & set(applies):
+            sys.stderr.write(
+                "devant: note — constraint %s overlaps paths with %s; if it replaces it, "
+                "run `devant add-edge %s supersedes %s`.\n" % (nid, c["id"], nid, c["id"])
+            )
+            return
+
+
+def cmd_add_edge(args):
+    conn = connect(args, create=True)
+    if args.kind not in EDGE_KINDS:
+        sys.stderr.write("devant: edge kind must be one of %s\n" % ", ".join(EDGE_KINDS))
+        return 2
+    for end in (args.src, args.dst):
+        if not conn.execute("SELECT 1 FROM node WHERE id=?", (end,)).fetchone():
+            sys.stderr.write("devant: warning — edge endpoint '%s' is not an existing node.\n" % end)
+    conn.execute(
+        "INSERT OR IGNORE INTO edge(src,kind,dst,note) VALUES(?,?,?,?)",
+        (args.src, args.kind, args.dst, args.note),
+    )
+    if args.kind == "supersedes":
+        conn.execute("UPDATE node SET status='superseded' WHERE id=? AND status!='superseded'", (args.dst,))
+    conn.commit()
+    return 0
+
+
+def cmd_link(args):
+    conn = connect(args, create=True)
+    path, cg_id = args.path, args.cg_id
+    if (not path or not cg_id) and not args.no_resolve:
+        info = cg_resolve(args.symbol)
+        if info:
+            resolved = (info.get("qualifiedName") or "")
+            want = args.symbol.lower().rsplit(".", 1)[-1]
+            # codegraph query is fuzzy; if the top hit doesn't actually contain the requested
+            # name, don't silently store a wrong path/id — warn and keep just the symbol name.
+            if want and want not in resolved.lower():
+                sys.stderr.write("devant: warning — '%s' resolved to '%s' (%s); not storing that path/id. "
+                                 "Pass --path/--no-resolve if intended.\n" % (args.symbol, resolved, info.get("filePath")))
+            else:
+                path = path or info.get("filePath")
+                cg_id = cg_id or info.get("id")
+                sys.stderr.write("devant: linked %s -> %s (%s)\n" % (args.node, resolved or args.symbol, info.get("filePath")))
+    conn.execute(
+        "INSERT OR REPLACE INTO code_link(node,relation,symbol,path,cg_id,note) VALUES(?,?,?,?,?,?)",
+        (args.node, args.relation, args.symbol or "", path or "", cg_id, args.note),  # '' not NULL so the PK dedupes
+    )
+    conn.commit()
+    return 0
+
+
+def cmd_decide(args):
+    conn = connect(args, create=True)
+    if not (args.body and args.body.strip()):
+        sys.stderr.write("devant: decide requires --body (the rationale).\n")
+        return 2
+    meta = {}
+    if args.rejected:
+        meta["rejected"] = args.rejected
+    if args.why_rejected:
+        meta["why_rejected"] = args.why_rejected
+    nid = _insert_node(conn, args.id, "decision", args.title, args.body, "accepted",
+                       json.dumps(meta) if meta else None)
+    for end in (args.realizes or []) + (args.establishes or []) + (args.supersedes or []):
+        if not conn.execute("SELECT 1 FROM node WHERE id=?", (end,)).fetchone():
+            sys.stderr.write("devant: warning — '%s' is not an existing node; edge will dangle.\n" % end)
+    for g in (args.realizes or []):
+        conn.execute("INSERT OR IGNORE INTO edge(src,kind,dst) VALUES(?,?,?)", (nid, "realizes", g))
+    for c in (args.establishes or []):
+        conn.execute("INSERT OR IGNORE INTO edge(src,kind,dst) VALUES(?,?,?)", (nid, "establishes", c))
+    for s in (args.supersedes or []):
+        conn.execute("INSERT OR IGNORE INTO edge(src,kind,dst) VALUES(?,?,?)", (nid, "supersedes", s))
+        row = conn.execute("SELECT * FROM node WHERE id=?", (s,)).fetchone()
+        if args.exempt and row and row["kind"] == "constraint":
+            # exempt one path: keep the constraint ACTIVE, just stop it firing there
+            m = load_meta(row)
+            m.setdefault("exempt_paths", [])
+            m["exempt_paths"].extend(p for p in args.exempt if p not in m["exempt_paths"])
+            conn.execute("UPDATE node SET meta=? WHERE id=?", (json.dumps(m), s))
+        else:
+            conn.execute("UPDATE node SET status='superseded' WHERE id=? AND status!='superseded'", (s,))
+    conn.commit()
+    print(nid)
+    return 0
+
+
+# -------------------------------------------------------------- read commands
+
+def _active(conn, kind):
+    return conn.execute(
+        "SELECT * FROM node WHERE kind=? AND status='active' ORDER BY id", (kind,)
+    ).fetchall()
+
+
+def _block_constraints(conn):
+    return [r for r in _active(conn, "constraint") if load_meta(r).get("severity") == "block"]
+
+
+def cmd_summary(args):
+    conn = connect(args)
+    if conn is None:
+        if args.json:
+            print("{}")
+        return 0
+    vision = _active(conn, "vision")
+    direction = _active(conn, "direction")
+    blocks = _block_constraints(conn)
+    if args.json:
+        print(json.dumps({
+            "vision": [dict(r) for r in vision],
+            "direction": [dict(r) for r in direction],
+            "block_constraints": [dict(r) for r in blocks],
+            "empty": not (vision or direction or blocks),
+        }))
+        return 0
+    lines = []
+    if vision:
+        lines.append("Vision: " + vision[0]["title"])
+    if direction:
+        lines.append("Direction: " + "; ".join(d["title"] for d in direction))
+    if blocks:
+        lines.append("Must-not (block rules):")
+        for c in blocks:
+            exp = load_meta(c).get("expected")
+            lines.append("  - %s: %s%s" % (c["id"], c["title"], (" (use: %s)" % exp) if exp else ""))
+    if lines:
+        print("\n".join(lines))
+    return 0
+
+
+def _relevant(conn, path=None, area=None):
+    out = []
+    # On an area (prompt) query also consider decisions, so a request that revives a
+    # rejected/superseded decision gets challenged. On a path query, only constraints/non-goals.
+    kinds = "('constraint','nongoal','decision')" if area is not None else "('constraint','nongoal')"
+    rows = conn.execute("SELECT * FROM node WHERE kind IN %s" % kinds).fetchall()
+    for r in rows:
+        m = load_meta(r)
+        # All kinds are area/path-scoped (no unconditional dump). The edit guard enforces block
+        # rules at write time regardless of whether they were injected, so scoping the heads-up
+        # keeps prompts lean without weakening enforcement.
+        if r["kind"] == "decision":
+            # surface a decision only when the prompt overlaps its topic (title/body/rejected),
+            # so a revived rejected path is challenged; skip generic accepted decisions.
+            if area and _content_tokens(area) & _content_tokens(
+                    (r["title"] or "") + " " + (r["body"] or "") + " " + (m.get("rejected") or "")):
+                out.append(r)
+            continue
+        if r["status"] != "active":
+            continue
+        match = path is None and area is None
+        if path:
+            for g in (m.get("applies_to_paths") or []):
+                if path_match(path, g):
+                    match = True
+            if not match:
+                for lk in conn.execute(
+                    "SELECT path FROM code_link WHERE node=?", (r["id"],)
+                ).fetchall():
+                    if lk["path"] and path_match(path, lk["path"]):
+                        match = True
+        if area and not match:
+            toks = _content_tokens(area)
+            # Match on the constraint's identifying tokens (title + expected) and its path
+            # segments — NOT the rationale prose — so unrelated rules don't leak in on stopwords.
+            htoks = _content_tokens((r["title"] or "") + " " + (m.get("expected") or ""))
+            for g in (m.get("applies_to_paths") or []):
+                htoks |= set(s.lower() for s in re.split(r"[/*.]+", g) if len(s) >= 3)
+            if toks & htoks:
+                match = True
+        if match:
+            out.append(r)
+    return out
+
+
+def cmd_constraints(args):
+    conn = connect(args)
+    if conn is None:
+        if args.json:
+            print("[]")
+        return 0
+    rows = _relevant(conn, path=args.path, area=args.area)
+    if args.json:
+        print(json.dumps([{**dict(r), "meta": load_meta(r)} for r in rows]))
+        return 0
+    for r in rows:
+        m = load_meta(r)
+        if r["kind"] == "decision":
+            tag = "REJECTED-DECISION" if (r["status"] == "rejected" or m.get("rejected")) else "decision"
+        elif r["kind"] == "nongoal":
+            tag = "nongoal"
+        elif m.get("severity") == "block":
+            tag = "BLOCK"
+        else:
+            tag = "warn"
+        line = "[%s] %s: %s" % (tag, r["id"], r["title"])
+        if m.get("expected"):
+            line += " — do: %s" % m["expected"]
+        print(line)
+        if r["body"]:
+            print("    %s" % r["body"])
+        if m.get("rejected"):
+            print("    rejected alternative: %s — %s" % (m.get("rejected"), m.get("why_rejected", "")))
+    return 0
+
+
+def evaluate_guard(rel, content, conn, file_exists=False):
+    """Decide a proposed write of `content` to repo-relative `rel`. Returns (decision, reason).
+    Pure (no stdin/print) so both the CLI and the PreToolUse hook helper share one implementation."""
+    # .devant is CLI-managed; direct edits could weaken a guardrail (always wins).
+    if rel and is_under(rel, ".devant"):
+        return ("deny",
+                "Don't edit .devant/ directly — devant manages it via the CLI "
+                "(`devant decide` / `add-node` / `link`). Editing it by hand can silently weaken a guard.")
+
+    # Collect all candidate findings, then return the STRONGEST (deny > ask > allow) — so an
+    # ask-level secret can never mask a block-constraint deny.
+    candidates = []  # (decision, reason)
+
+    sec = secret_like(content)
+    if sec:
+        label, sev = sec
+        ctx = DOC_TEST_CTX.search(rel or "")
+        if not (sev == "ask" and ctx):                     # placeholders in fixtures -> ignore
+            if sev == "deny" and ctx and label != "private key block":
+                sev = "ask"                                 # flag in fixture context (never a private key)
+            candidates.append((sev, "Possible %s in this write. Don't hard-code credentials — use env/secret config." % label))
+
+    if rel and rel.lower().endswith((".md", ".markdown")) and not file_exists and not is_under(rel, ".devant") \
+            and re.search(r"(^|[-_ ])(plan|spec|scratch|wip|draft)([-_ .]|$)", os.path.basename(rel).lower()):
+        candidates.append(("ask",
+                           "This looks like a stray plan/scratch file. devant keeps plans in chat and captures "
+                           "durable intent with `devant decide`. Proceed only if it's a real, lasting project doc."))
+
+    if conn is not None and rel:
+        for c in _active(conn, "constraint"):
+            m = load_meta(c)
+            applies = m.get("applies_to_paths") or []
+            link_paths = [lk["path"] for lk in conn.execute(
+                "SELECT path FROM code_link WHERE node=? AND relation='constrains'", (c["id"],)
+            ).fetchall() if lk["path"]]
+            scope = applies + link_paths
+            if not scope or not any(path_match(rel, g) for g in scope):
+                continue
+            if any(path_match(rel, g) for g in (m.get("exempt_paths") or [])):
+                continue
+            hit = first_forbid_hit(content, m.get("forbid") or [])
+            if not hit:
+                continue
+            exp = m.get("expected")
+            why = conn.execute(
+                "SELECT n.body FROM edge e JOIN node n ON n.id=e.src "
+                "WHERE e.kind='establishes' AND e.dst=? AND n.body IS NOT NULL LIMIT 1", (c["id"],)
+            ).fetchone()
+            r = "%s: %s. Forbidden here: '%s'.%s%s%s" % (
+                c["id"], c["title"], hit,
+                (" Sanctioned path: %s." % exp) if exp else "",
+                (" Why: %s" % why["body"]) if why and why["body"] else "",
+                (" To override one path, the user can run: devant decide --title '…' --body '…' --supersedes %s --exempt <glob>" % c["id"]),
+            )
+            candidates.append(("deny" if m.get("severity") == "block" else "ask", r))
+
+    for want in ("deny", "ask"):
+        for d, r in candidates:
+            if d == want:
+                return (d, r)
+    return ("allow", "")
+
+
+def cmd_guard(args):
+    f = args.file or ""
+    content = sys.stdin.read() if args.content == "-" else (args.content or "")
+    rel = rel_to_project(f, project_dir())
+    decision, reason = evaluate_guard(rel, content, connect(args), file_exists=bool(f and os.path.exists(f)))
+    print(json.dumps({"decision": decision, "reason": reason}))
+    return 0
+
+
+def cmd_why(args):
+    conn = connect(args)
+    if conn is None:
+        return 0
+    sym = args.symbol
+    links = conn.execute("SELECT * FROM code_link WHERE symbol=?", (sym,)).fetchall()
+    if not links:
+        links = conn.execute("SELECT * FROM code_link WHERE symbol LIKE ?", ("%" + sym + "%",)).fetchall()
+    seen, frontier, chain = set(), [lk["node"] for lk in links], []
+    while frontier:
+        nid = frontier.pop()
+        if nid in seen:
+            continue
+        seen.add(nid)
+        row = conn.execute("SELECT * FROM node WHERE id=?", (nid,)).fetchone()
+        if row:
+            chain.append(row)
+        # Walk UP the intent chain: outgoing realizes/refines/relates AND incoming
+        # establishes/refines/realizes (so a symbol linked to a constraint still reaches
+        # the decision that established it and the goal/vision behind it).
+        for e in conn.execute(
+            "SELECT dst AS n FROM edge WHERE src=? AND kind IN ('realizes','refines','relates') "
+            "UNION SELECT src AS n FROM edge WHERE dst=? AND kind IN ('establishes','refines','realizes')",
+            (nid, nid),
+        ).fetchall():
+            frontier.append(e["n"])
+    if args.json:
+        print(json.dumps([{**dict(r), "meta": load_meta(r)} for r in chain]))
+        return 0
+    if not chain:
+        print("No recorded intent for %s." % sym)
+        return 0
+    for r in chain:
+        m = load_meta(r)
+        line = "[%s] %s: %s" % (r["kind"], r["id"], r["title"])
+        if r["body"]:
+            line += " — " + r["body"]
+        if m.get("rejected"):
+            line += "  (rejected: %s — %s)" % (m.get("rejected"), m.get("why_rejected", ""))
+        print(line)
+    return 0
+
+
+def cmd_direction(args):
+    conn = connect(args)
+    if conn is None:
+        return 0
+    out = {"vision": [dict(r) for r in _active(conn, "vision")],
+           "direction": [dict(r) for r in _active(conn, "direction")],
+           "goals": [dict(r) for r in _active(conn, "goal")]}
+    if args.json:
+        print(json.dumps(out))
+        return 0
+    if out["vision"]:
+        print("Vision: " + out["vision"][0]["title"])
+        if out["vision"][0]["body"]:
+            print("  " + out["vision"][0]["body"])
+    if out["direction"]:
+        print("Next:")
+        for d in out["direction"]:
+            print("  - %s" % d["title"])
+    if out["goals"]:
+        print("Goals:")
+        for g in out["goals"]:
+            print("  - %s" % g["title"])
+    return 0
+
+
+def cmd_query(args):
+    conn = connect(args)
+    if conn is None:
+        if args.json:
+            print("[]")
+        return 0
+    like = "%" + args.text + "%"
+    rows = conn.execute(
+        "SELECT * FROM node WHERE status!='superseded' AND (title LIKE ? OR body LIKE ?) ORDER BY kind, id",
+        (like, like),
+    ).fetchall()
+    if args.json:
+        print(json.dumps([{**dict(r), "meta": load_meta(r)} for r in rows]))
+        return 0
+    for r in rows:
+        print("[%s] %s: %s" % (r["kind"], r["id"], r["title"]))
+    return 0
+
+
+def cmd_show(args):
+    conn = connect(args)
+    if conn is None:
+        if args.json:
+            print("{}")
+        return 0
+    nodes = [{**dict(r), "meta": load_meta(r)} for r in conn.execute("SELECT * FROM node ORDER BY kind,id").fetchall()]
+    edges = [dict(r) for r in conn.execute("SELECT * FROM edge").fetchall()]
+    links = [dict(r) for r in conn.execute("SELECT * FROM code_link").fetchall()]
+    if args.json:
+        print(json.dumps({"nodes": nodes, "edges": edges, "links": links}))
+        return 0
+    for n in nodes:
+        print("[%s] %s (%s): %s" % (n["kind"], n["id"], n["status"], n["title"]))
+    print("-- %d edges, %d code links" % (len(edges), len(links)))
+    return 0
+
+
+def _graph_dangling(conn):
+    """Intra-graph dangling refs (edges/links pointing at non-existent nodes). Pure SQL, no codegraph."""
+    edges = conn.execute(
+        "SELECT e.src, e.kind, e.dst FROM edge e "
+        "WHERE NOT EXISTS(SELECT 1 FROM node WHERE id=e.src) OR NOT EXISTS(SELECT 1 FROM node WHERE id=e.dst)"
+    ).fetchall()
+    links = conn.execute(
+        "SELECT cl.node, cl.relation, cl.symbol FROM code_link cl "
+        "WHERE NOT EXISTS(SELECT 1 FROM node WHERE id=cl.node)"
+    ).fetchall()
+    return edges, links
+
+
+def cmd_dangling(args):
+    conn = connect(args)
+    if conn is None:
+        return 0
+    bad_edges, bad_links = _graph_dangling(conn)
+    code_dangling = []
+    if cg_available():
+        for lk in conn.execute("SELECT * FROM code_link WHERE symbol IS NOT NULL AND symbol!=''").fetchall():
+            if cg_resolve(lk["symbol"]) is None:
+                code_dangling.append(lk)
+    if args.json:
+        print(json.dumps({
+            "code_dangling": [dict(r) for r in code_dangling],
+            "edge_dangling": [dict(r) for r in bad_edges],
+            "link_node_missing": [dict(r) for r in bad_links],
+        }))
+        return 0
+    if code_dangling:
+        print("Dangling intent->code links (symbol no longer resolves — re-link or update):")
+        for lk in code_dangling:
+            print("  - %s %s -> %s" % (lk["node"], lk["relation"], lk["symbol"]))
+    if bad_edges or bad_links:
+        print("Broken intent edges/links (endpoint node missing):")
+        for e in bad_edges:
+            print("  - edge %s %s %s" % (e["src"], e["kind"], e["dst"]))
+        for lk in bad_links:
+            print("  - link from missing node %s -> %s" % (lk["node"], lk["symbol"]))
+    return 0
+
+
+def cmd_lint(args):
+    conn = connect(args)
+    if conn is None:
+        if args.json:
+            print("{}")
+        return 0
+    bad_edges, bad_links = _graph_dangling(conn)
+    toothless = []  # block/warn constraints that can never fire (no forbid pattern)
+    for c in _active(conn, "constraint"):
+        m = load_meta(c)
+        if not (m.get("forbid")):
+            toothless.append(c["id"])
+    no_scope = []  # constraints with neither applies_to_paths nor a constrains code_link
+    for c in _active(conn, "constraint"):
+        m = load_meta(c)
+        has_link = conn.execute(
+            "SELECT 1 FROM code_link WHERE node=? AND relation='constrains' AND path!='' LIMIT 1", (c["id"],)
+        ).fetchone()
+        if not (m.get("applies_to_paths") or has_link):
+            no_scope.append(c["id"])
+    report = {
+        "broken_edges": [dict(r) for r in bad_edges],
+        "broken_links": [dict(r) for r in bad_links],
+        "constraints_without_forbid": toothless,
+        "constraints_without_scope": no_scope,
+    }
+    if args.json:
+        print(json.dumps(report))
+        return 0
+    clean = True
+    for label, items in [
+        ("Edges with a missing endpoint", [f"{e['src']} {e['kind']} {e['dst']}" for e in bad_edges]),
+        ("Code links from a missing node", [f"{lk['node']} -> {lk['symbol']}" for lk in bad_links]),
+        ("Constraints that can never fire (no --forbid)", toothless),
+        ("Constraints with no path scope (won't match any edit)", no_scope),
+    ]:
+        if items:
+            clean = False
+            print("%s:" % label)
+            for it in items:
+                print("  - %s" % it)
+    if clean:
+        print("intent graph: clean.")
+    return 0
+
+
+def cmd_doctor(args):
+    """Self-check: prove the guard engine actually denies, and report wiring/health.
+    Exits non-zero if the guard engine is broken (a canary against a silently-dead guard)."""
+    mem = sqlite3.connect(":memory:")
+    mem.row_factory = sqlite3.Row
+    ensure_schema(mem)
+    mem.execute(
+        "INSERT INTO node(id,kind,title,body,status,meta) VALUES('con-self','constraint','self-test','t','active',?)",
+        (json.dumps({"applies_to_paths": ["**/*.py"], "forbid": ["__devant_selftest__"], "severity": "block"}),),
+    )
+    deny, _ = evaluate_guard("x.py", "y = __devant_selftest__\n", mem)
+    allow, _ = evaluate_guard("x.py", "y = 1\n", mem)
+    sec_deny, _ = evaluate_guard("s.py", "k = 'ghp_" + "a" * 24 + "'\n", None)
+    engine_ok = (deny == "deny" and allow == "allow" and sec_deny == "deny")
+
+    conn = connect(args)
+    counts = {}
+    if conn is not None:
+        for k in KINDS:
+            counts[k] = conn.execute("SELECT COUNT(*) c FROM node WHERE kind=?", (k,)).fetchone()["c"]
+    usage, dead = _usage_counts()
+    report = {
+        "guard_engine": "ok" if engine_ok else "BROKEN",
+        "codegraph": "available" if cg_available() else "absent",
+        "intent_graph": "present" if conn is not None else "not onboarded (run /devant:onboard)",
+        "node_counts": counts,
+        "specialist_usage": usage,
+        "never_used_specialists": dead,
+    }
+    if args.json:
+        print(json.dumps(report))
+    else:
+        print("guard engine: %s" % report["guard_engine"])
+        print("codegraph:    %s" % report["codegraph"])
+        print("intent graph: %s" % report["intent_graph"])
+        if counts:
+            print("nodes:        " + ", ".join("%s=%d" % (k, counts[k]) for k in KINDS if counts.get(k)))
+        if usage:
+            print("specialists:  " + ", ".join("%s=%d" % (s, usage[s]) for s in SPECIALISTS))
+            if dead:
+                print("never used:   " + ", ".join(dead) + " (best-effort; logged by the router)")
+        if not engine_ok:
+            print("WARNING: the edit-guard engine did not behave as expected — block enforcement may be broken.")
+    return 0 if engine_ok else 1
+
+
+def _usage_counts():
+    log = os.path.join(project_dir(), ".devant", "state", "usage.log")
+    counts = {s: 0 for s in SPECIALISTS}
+    try:
+        with open(log) as fh:
+            for line in fh:
+                first = line.strip().split()
+                if first and first[0] in counts:
+                    counts[first[0]] += 1
+    except FileNotFoundError:
+        pass
+    dead = [s for s, c in counts.items() if c == 0 and s != "onboard"]
+    return counts, dead
+
+
+def cmd_log(args):
+    """Append a route to the local usage log (powers dead-skills)."""
+    state = os.path.join(project_dir(), ".devant", "state")
+    os.makedirs(state, exist_ok=True)
+    with open(os.path.join(state, "usage.log"), "a") as fh:
+        fh.write("%s %s\n" % (args.specialist, " ".join(args.intent or [])))
+    return 0
+
+
+def cmd_dead_skills(args):
+    counts, dead = _usage_counts()
+    if args.json:
+        print(json.dumps({"counts": counts, "dead": dead}))
+        return 0
+    print("Specialist usage: " + ", ".join("%s=%d" % (s, counts[s]) for s in SPECIALISTS))
+    if dead:
+        print("Never used: " + ", ".join(dead))
+    return 0
+
+
+# ------------------------------------------------------------------- parser
+
+def build_parser():
+    p = argparse.ArgumentParser(prog="devant", description="Local intent graph for the devant companion.")
+    p.add_argument("--db", help="override the intent.db path (default: <project>/.devant/intent.db)")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    a = sub.add_parser("add-node", help="add or update an intent node")
+    a.add_argument("--kind", required=True, choices=KINDS)
+    a.add_argument("--title", required=True)
+    a.add_argument("--id")
+    a.add_argument("--body")
+    a.add_argument("--status")
+    a.add_argument("--meta", help="raw JSON meta object")
+    a.add_argument("--applies", action="append", help="constraint: glob path it applies to (repeatable)")
+    a.add_argument("--forbid", action="append", help="constraint: forbidden substring/regex (repeatable)")
+    a.add_argument("--exempt", action="append", help="constraint: exempt glob path (repeatable)")
+    a.add_argument("--expected", help="constraint: the sanctioned pattern/path to name in denials")
+    a.add_argument("--severity", choices=["block", "warn"])
+    a.add_argument("--rejected", help="decision: the rejected alternative")
+    a.add_argument("--why-rejected", dest="why_rejected", help="decision: why it was rejected")
+    a.set_defaults(func=cmd_add_node)
+
+    e = sub.add_parser("add-edge", help="add a typed edge between nodes")
+    e.add_argument("src")
+    e.add_argument("kind", choices=EDGE_KINDS)
+    e.add_argument("dst")
+    e.add_argument("--note")
+    e.set_defaults(func=cmd_add_edge)
+
+    lk = sub.add_parser("link", help="link an intent node to a code symbol")
+    lk.add_argument("node")
+    lk.add_argument("symbol")
+    lk.add_argument("--relation", default="implemented_by",
+                    choices=["implemented_by", "governs", "constrains"])
+    lk.add_argument("--path")
+    lk.add_argument("--cg-id", dest="cg_id")
+    lk.add_argument("--note")
+    lk.add_argument("--no-resolve", action="store_true", help="don't call codegraph to fill path/id")
+    lk.set_defaults(func=cmd_link)
+
+    d = sub.add_parser("decide", help="record a decision (+ supersede/establish/realize/exempt)")
+    d.add_argument("--title", required=True)
+    d.add_argument("--body", required=True)
+    d.add_argument("--id")
+    d.add_argument("--rejected")
+    d.add_argument("--why-rejected", dest="why_rejected")
+    d.add_argument("--realizes", action="append")
+    d.add_argument("--establishes", action="append")
+    d.add_argument("--supersedes", action="append")
+    d.add_argument("--exempt", action="append", help="exempt path added to a superseded constraint")
+    d.set_defaults(func=cmd_decide)
+
+    for name, func, extra in [
+        ("summary", cmd_summary, None),
+        ("direction", cmd_direction, None),
+        ("show", cmd_show, None),
+        ("dangling", cmd_dangling, None),
+        ("lint", cmd_lint, None),
+        ("doctor", cmd_doctor, None),
+        ("dead-skills", cmd_dead_skills, None),
+    ]:
+        s = sub.add_parser(name)
+        s.add_argument("-j", "--json", action="store_true")
+        s.set_defaults(func=func)
+
+    c = sub.add_parser("constraints", help="active constraints/non-goals for a path or area")
+    c.add_argument("--path")
+    c.add_argument("--area")
+    c.add_argument("-j", "--json", action="store_true")
+    c.set_defaults(func=cmd_constraints)
+
+    g = sub.add_parser("guard", help="evaluate a proposed edit against constraints/content rules")
+    g.add_argument("--file", required=True)
+    g.add_argument("--content", default="-", help="content, or '-' to read stdin (default)")
+    g.set_defaults(func=cmd_guard)
+
+    w = sub.add_parser("why", help="intent attached to a code symbol")
+    w.add_argument("symbol")
+    w.add_argument("-j", "--json", action="store_true")
+    w.set_defaults(func=cmd_why)
+
+    q = sub.add_parser("query", help="search intent nodes")
+    q.add_argument("text")
+    q.add_argument("-j", "--json", action="store_true")
+    q.set_defaults(func=cmd_query)
+
+    lg = sub.add_parser("log", help="record which specialist the router used")
+    lg.add_argument("specialist", choices=SPECIALISTS)
+    lg.add_argument("intent", nargs="*")
+    lg.set_defaults(func=cmd_log)
+
+    return p
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    try:
+        return args.func(args) or 0
+    except BrokenPipeError:
+        return 0
+    except (sqlite3.Error, ValueError, OSError) as exc:
+        sys.stderr.write("devant: %s\n" % exc)  # degrade with a clean message, never a traceback
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
