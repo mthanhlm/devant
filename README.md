@@ -13,7 +13,7 @@ It pairs two knowledge graphs:
 
 ```
 /devant:onboard        # one time per repo: scans with codegraph, interviews you, seeds the intent graph
-/devant <whatever>     # everything else — devant auto-routes (answer · code · document · recall direction)
+/devant:run <whatever> # everything else — devant auto-routes (answer · code · document · recall direction)
 ```
 
 That's the whole surface. No menu of commands to learn.

@@ -1,7 +1,7 @@
 ---
 name: router
 user-invocable: false
-description: Entry point for any request on this codebase via /devant — answer a question, change code, write docs, or recall the project's direction/decisions. Grounds in codegraph and the intent graph, pushes back on debt, and dispatches to one specialist. Also the target of the /devant command.
+description: Entry point for any request on this codebase via /devant:run — answer a question, change code, write docs, or recall the project's direction/decisions. Grounds in codegraph and the intent graph, pushes back on debt, and dispatches to one specialist. Also the target of the /devant:run command.
 ---
 
 # devant: router
