@@ -13,6 +13,7 @@ import functools
 import json
 import os
 import re
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -249,6 +250,28 @@ def cg_resolve(symbol):
         "id": node.get("id"),
         "qualifiedName": node.get("qualifiedName") or node.get("name"),
     }
+
+
+def cg_status():
+    """Parsed `codegraph status -j`, or None when codegraph is unavailable/unreadable."""
+    if not cg_available():
+        return None
+    try:
+        out = subprocess.run(["codegraph", "status", "-j"], capture_output=True, text=True, timeout=20)
+        return json.loads(out.stdout)
+    except Exception:
+        return None
+
+
+def cg_stale(status):
+    """True if the index lags the working tree (uncommitted drift). Lets readers warn before
+    trusting a stale index — the watcher is off on some filesystems (e.g. WSL2 /mnt)."""
+    if not status:
+        return False
+    if status.get("worktreeMismatch"):
+        return True
+    pc = status.get("pendingChanges") or {}
+    return any(pc.get(k) for k in ("added", "modified", "removed"))
 
 
 # -------------------------------------------------------------- write commands
@@ -600,6 +623,85 @@ def evaluate_guard(rel, content, conn, file_exists=False):
     return ("allow", "")
 
 
+# Bash git-guard: devant never commits/pushes/adds or rewrites/destroys git state on the user's
+# behalf (nongoal-002). Cooperative — raises the floor, not a sandbox (nongoal-001); DEVANT=off
+# disables it and it does not pretend to stop a determined bypass (e.g. value-taking wrapper opts).
+_GIT_WRAPPERS = {"sudo", "doas", "nice", "time", "env", "command", "xargs", "nohup", "stdbuf", "setsid", "ionice"}
+_GIT_VALUE_OPTS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix", "--config-env"}
+_GIT_DENY_ALWAYS = {"commit", "push", "add", "rm", "filter-branch", "filter-repo"}
+
+
+def _git_subcommand(tokens):
+    """The git subcommand a shell segment runs, else None. Sees through leading VAR=val
+    assignments, command wrappers (sudo/env/…), and git's own global options."""
+    i, n = 0, len(tokens)
+    while i < n and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[i]):
+        i += 1
+    while i < n and os.path.basename(tokens[i].strip("()")) in _GIT_WRAPPERS:
+        i += 1
+        while i < n and tokens[i].startswith("-"):
+            i += 1
+    if i >= n or os.path.basename(tokens[i].strip("()")) != "git":
+        return None
+    i += 1
+    while i < n and tokens[i].startswith("-"):  # git's global options (some consume a value)
+        opt = tokens[i]
+        i += 1
+        if opt in _GIT_VALUE_OPTS and "=" not in opt:
+            i += 1
+    return tokens[i].strip("()") if i < n else None
+
+
+def _git_deny_hit(sub, tokens):
+    """The denied git operation a segment performs, else None."""
+    if sub in _GIT_DENY_ALWAYS:
+        return "git %s" % sub
+    opts = set(t for t in tokens if t.startswith("-"))
+    if sub == "reset" and "--hard" in opts:
+        return "git reset --hard"
+    if sub == "clean" and ("--force" in opts or any(re.match(r"^-[a-eg-z]*f", o) for o in opts)):
+        return "git clean -f"
+    if sub == "branch" and (opts & {"-d", "-D", "--delete"}):
+        return "git branch -d/-D"
+    if sub == "tag" and (opts & {"-d", "--delete"}):
+        return "git tag -d"
+    if sub == "checkout" and ((opts & {"-f", "--force"}) or "--" in tokens):
+        return "git checkout (discard)"
+    if sub == "stash" and ("drop" in tokens or "clear" in tokens):
+        return "git stash drop/clear"
+    return None
+
+
+def evaluate_bash(command):
+    """Decide a proposed Bash command: deny git commit/push/add and destructive git, else allow.
+    Pure (no I/O) so the CLI and the PreToolUse(Bash) helper share one implementation."""
+    if not command or not command.strip():
+        return ("allow", "")
+    for seg in re.split(r"&&|\|\||[;&|\n]", command):
+        seg = seg.strip()
+        if not seg:
+            continue
+        try:
+            tokens = shlex.split(seg)
+        except ValueError:  # unbalanced quotes — fall back to a conservative literal check
+            if re.search(r"\bgit\b[^\n]*\b(commit|push|add)\b", seg):
+                return ("deny", _git_reason("git commit/push/add"))
+            continue
+        sub = _git_subcommand(tokens)
+        if sub is None:
+            continue
+        hit = _git_deny_hit(sub, tokens)
+        if hit:
+            return ("deny", _git_reason(hit))
+    return ("allow", "")
+
+
+def _git_reason(hit):
+    return ("[devant] Blocked: %s. devant never commits, pushes, adds, or rewrites/destroys git "
+            "state on your behalf — do that manually. Cooperative guard, not a sandbox "
+            "(DEVANT=off disables it)." % hit)
+
+
 def cmd_guard(args):
     f = args.file or ""
     content = sys.stdin.read() if args.content == "-" else (args.content or "")
@@ -733,7 +835,9 @@ def cmd_dangling(args):
         return 0
     bad_edges, bad_links = _graph_dangling(conn)
     code_dangling = []
+    stale = False
     if cg_available():
+        stale = cg_stale(cg_status())  # a stale index makes symbol re-resolution unreliable (R2)
         for lk in conn.execute("SELECT * FROM code_link WHERE symbol IS NOT NULL AND symbol!=''").fetchall():
             if cg_resolve(lk["symbol"]) is None:
                 code_dangling.append(lk)
@@ -742,8 +846,12 @@ def cmd_dangling(args):
             "code_dangling": [dict(r) for r in code_dangling],
             "edge_dangling": [dict(r) for r in bad_edges],
             "link_node_missing": [dict(r) for r in bad_links],
+            "stale_index": stale,
         }))
         return 0
+    if stale:
+        print("Note: codegraph index looks stale (uncommitted changes not yet synced) — run "
+              "'codegraph sync' first; intent->code results below may be unreliable.")
     if code_dangling:
         print("Dangling intent->code links (symbol no longer resolves — re-link or update):")
         for lk in code_dangling:

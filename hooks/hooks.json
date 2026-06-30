@@ -20,6 +20,12 @@
         "hooks": [
           { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/lib/pre-tool-write.sh\"" }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/lib/pre-tool-bash.sh\"" }
+        ]
       }
     ],
     "Stop": [

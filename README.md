@@ -24,10 +24,12 @@ That's the whole surface. No menu of commands to learn.
   elaborate path. Steps scale with codegraph blast radius, never line count.
 - **Knows what NOT to do.** Recorded constraints are enforced on edits: a Write/Edit that breaks a
   block rule (e.g. a planner reaching into the DB instead of reporting back) is **denied before it
-  lands**, naming the sanctioned path and the decision behind it. The Bash guard also asks before
-  anything that would alter devant's own rules (writes to `.devant/`), destroy, or exfiltrate. It's
-  a cooperative guard, not a sandbox — it raises the floor, it doesn't claim to stop a determined
-  bypass.
+  lands**, naming the sanctioned path and the decision behind it. A separate Bash guard **denies**
+  `git commit`, `git push`, `git add`, and destructive git (history rewrite, `reset --hard`,
+  forced `clean`, branch/tag delete, `stash drop`/`clear`, discard `checkout`) — devant never
+  commits, pushes, or rewrites git state on your behalf; you do that manually. Both are cooperative
+  guards, not a sandbox — they raise the floor, they don't claim to stop a determined bypass
+  (`DEVANT=off` disables them).
 - **Pushes back.** Debt-prone or already-rejected requests get challenged before a line is written.
 - **Pushes you to verify.** Bugs want a failing repro test first; the Stop hook surfaces the
   impacted tests (`codegraph affected`) to run. devant *reminds and grounds* verification — it does
@@ -51,4 +53,5 @@ That's the whole surface. No menu of commands to learn.
 - `python3 "$CLAUDE_PLUGIN_ROOT/bin/devant" doctor` self-tests the guard engine (a canary against a
   silently-broken guard) and reports codegraph/index/intent health and specialist usage.
 - The plugin is covered by an end-to-end test suite (`python3 tests/test_devant.py`) that exercises
-  the CLI **and** the bash hooks, so the guard is verified to actually deny under bash.
+  the CLI **and** the bash hooks (the edit guard, the git guard, and the session/prompt/stop hooks),
+  so the guards are verified to actually deny under bash.

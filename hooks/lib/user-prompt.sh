@@ -28,7 +28,10 @@ CTX=""
 # "why did we add…/how does…/what is…" lead with an info word (skip — asking, not editing).
 INFO_LEAD=0
 printf '%s' "$PROMPT" | grep -qiE '^[[:space:]]*(how|why|what|which|who|whose|when|where|does|do|did|is|are|am|was|were|explain|show|list|tell|describe)\b' && INFO_LEAD=1
-if [ "$INFO_LEAD" = "0" ] && printf '%s' "$PROMPT" | grep -qiE '\b(implement|add|fix|refactor|creat|build|chang|updat|writ|renam|delet|remov|migrat|optimi|debug|wire|integrat|introduc|support)'; then
+# Fire on change-verbs AND on problem/imperative phrasings ("it's broken", "the parser is slow",
+# "sort out the login") so the heads-up isn't limited to a narrow verb list. Pure "how/why" questions
+# still lead with an info word and are skipped — the edit guard enforces block rules regardless.
+if [ "$INFO_LEAD" = "0" ] && printf '%s' "$PROMPT" | grep -qiE '\b(implement|add|fix|refactor|creat|build|chang|updat|writ|renam|delet|remov|migrat|optimi|debug|wire|integrat|introduc|support|broke|break|fail|error|bug|issue|crash|slow|speed|faster|sort out|handl|clean up|get rid|deprecat|replac|tidy|harden|simplif|rework|rewrit|upgrad|bump|disabl|enabl|configur|tweak|patch|resolv|repair)'; then
   PRIMED="$STATE/${SID:-_}.primed"
   if [ ! -f "$PRIMED" ]; then
     : > "$PRIMED" 2>/dev/null

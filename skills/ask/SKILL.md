@@ -1,12 +1,17 @@
 ---
 name: ask
 user-invocable: false
+context: fork
+agent: Explore
 description: devant specialist (router-invoked) for read-only Q&A about the codebase, grounded in codegraph and the intent graph — how/why/where something works, trace a flow, blast radius, or why a decision was made / where the project is headed. Never edits.
 ---
 
 # devant: ask
 
-Answer the question; change nothing. The intent CLI is `python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant"`.
+Answer the question; change nothing. This runs in an isolated read-only context (the Explore agent,
+where Write/Edit are denied by Claude Code), so the answer is grounded but can't mutate the repo, and
+the verbose codegraph/exploration output stays out of the main conversation — return just the answer.
+The intent CLI is `python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant"`.
 
 - **Structure** — use `codegraph_explore` (primary), `codegraph_search`, `codegraph_callers`/
   `callees` for flow, `codegraph_impact` for blast radius. One good codegraph call beats a

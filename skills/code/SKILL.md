@@ -23,18 +23,36 @@ visible outline first, then execute. Never quarter a small change.
 Every changed line traces to the request. Match surrounding style and idiom. No drive-by
 refactors or reformatting. Remove only the orphans your change created.
 
-## 4. Verify logic, not compilation — and actually RUN it
-- Bug → write a **failing repro test first**, then make it pass (red proves the logic). A test
-  that can't fail before the fix proves nothing.
-- New behavior → asserting tests.
-- Run the impacted subset: `git diff --name-only | codegraph affected --stdin -q`, then run those.
-  **If that returns nothing, don't trust the silence** — codegraph may not resolve the dependents;
-  fall back to the project's own test command (pytest/go test/npm test/…) for the touched area.
-  No test infra at all → a runtime smoke, and say so (don't scaffold a framework).
-- Lint/typecheck the changed files. Report honestly with real command output, including failures.
-  Don't say "done" on a green compile alone or on an unrun test.
+## 4. Verify logic, not compilation — evidence, not claims
+"Done" requires the evidence below as real command output, never a green compile or an unrun test.
+- **Requirement → evidence:** map each acceptance criterion to the code that satisfies it and the
+  test that proves it. An unmapped criterion is unfinished.
+- **Bug → failing repro FIRST:** write the test that fails for the stated bug (red proves the
+  logic), then make it pass. A test that can't fail before the fix proves nothing.
+- **New behavior → asserting tests**, including the edge/failure cases — not just the happy path.
+- **Run the impacted subset:** `git diff --name-only | codegraph affected --stdin -q`, then run
+  those. **If it returns nothing, don't trust the silence** — codegraph may not resolve the
+  dependents; fall back to the project's own test command (pytest/go test/npm test/…) for the
+  touched area. No test infra at all → a runtime smoke, and say so (don't scaffold a framework).
+- **Pre-existing vs new:** if the touched suite was already red, state which failures you introduced
+  vs inherited — don't claim a regression you didn't cause or hide one you did.
+- **Lint/typecheck the changed files.** Report honestly, including failures.
 
-## 5. Record only a real decision
+## 5. When stuck, stop — don't loop
+If a fix→test cycle fails ~2–3 times **without new evidence** (same failure, nothing new learned),
+STOP and report state — what you tried, the current failure, your best hypothesis — instead of
+grinding. Repeated attempts on the same information burn context and rarely converge; a human steer
+is cheaper than a tenth blind iteration.
+
+## 6. Engineering-sense check (scale to risk)
+Before "done", sanity-check the change *makes sense*, not just that it runs: solves the real
+requirement, sits in the right layer, follows the repo's existing patterns, adds no one-use
+abstraction or needless dependency, and reads clearly for the next maintainer. For **high-risk**
+changes — auth/authz, data migrations, concurrency, security-sensitive paths, public APIs,
+architecture changes, or a wide codegraph blast radius — get an INDEPENDENT read-only review via the
+`devant:review` skill before declaring done. Low-risk changes: the self-check above suffices.
+
+## 7. Record only a real decision
 If the change settled a genuine choice (or ruled one out), capture it:
 `devant decide --title "…" --body "<why>" [--rejected "…" --why-rejected "…"] [--realizes <goal>]`.
 Keep it one node. Do not write plan/spec/report markdown. Do not edit `.devant/` by hand.
