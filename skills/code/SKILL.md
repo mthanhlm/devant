@@ -1,6 +1,8 @@
 ---
 name: code
 user-invocable: false
+model: sonnet
+effort: high
 description: devant specialist (router-invoked) to make a verified code change — implement, fix, refactor, debug-and-fix, or complete unfinished work — grounded in codegraph and the intent graph, sized by blast radius, surgical, and verified for logic (not just compilation). Used for substantial changes; the router does trivial edits inline.
 ---
 
@@ -15,9 +17,13 @@ don't rewrite)? stdlib / platform / existing dep / one line / only then minimal 
 `devant constraints --path <file>` before writing — if a **block** rule applies, take the
 sanctioned path; the edit guard will deny a violation anyway, so resolve it up front.
 
-## 2. Size, then act (no fixed pipeline)
-`codegraph_impact`/`callers`. Bounded fan-out → implement directly. Wide/cross-module → a brief
-visible outline first, then execute. Never quarter a small change.
+## 2. Plan — think it through, then post it (visible, before touching code)
+`codegraph_impact`/`callers` to size it. Work out — not just report — what you're changing, why
+(the requirement/bug it satisfies), and how (the approach, step by step through the logic), then
+post that plan before writing any code. This is the thinking step, not a formality after you've
+already decided: if you can't state the how in steps, you haven't planned it yet. Depth scales
+with size (a few lines for a bounded change, a fuller outline for wide/cross-module) but it's
+never skipped. Never quarter a small change.
 
 ## 3. Implement surgically
 Every changed line traces to the request. Match surrounding style and idiom. No drive-by

@@ -1,6 +1,8 @@
 ---
 name: document
 user-invocable: false
+model: sonnet
+effort: medium
 description: devant specialist (router-invoked) to write or update documentation grounded in the code (codegraph) and the project's vision/audience (intent graph). Updates existing docs in place; never spawns stray plan/spec/report files.
 ---
 
