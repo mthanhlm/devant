@@ -1,6 +1,7 @@
 ---
 name: intent
 user-invocable: false
+model: sonnet
 effort: medium
 description: devant specialist (router-invoked) to inspect or update the project's intent — vision, direction, decisions, constraints, non-goals — via the devant CLI. Use to record a decision (incl. a rejected alternative), add or retire a rule, lint the graph, or answer "why are we allowed to X" / "where are we headed".
 ---

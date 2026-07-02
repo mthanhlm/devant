@@ -2,6 +2,14 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.1] - 2026-07-02
+
+### Changed
+- Skills pin `model` again (dec-004, supersedes dec-003): sonnet baseline across the board,
+  `review` pins opus so the independent reviewer is a stronger, different model than the
+  writer. Effort tiers unchanged (code=high, review=xhigh, rest=medium). Accepted trade-off:
+  a routed skill runs its pinned model even when the session runs a higher tier.
+
 ## [0.3.0] - 2026-07-02
 
 ### Fixed

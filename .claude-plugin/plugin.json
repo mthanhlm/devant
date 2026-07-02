@@ -1,7 +1,7 @@
 {
   "name": "devant",
   "displayName": "Devant",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A single-command, intent-aware coding companion. Onboards by scanning the repo with codegraph, captures the project's vision/direction/non-goals/rules as a local intent graph you own, and works like a teammate who knows what to do and what NOT to do. Lean, fast, ceremony scaled to blast radius. Everything it stores stays local and is never committed.",
   "author": {
     "name": "mthanhlm"
