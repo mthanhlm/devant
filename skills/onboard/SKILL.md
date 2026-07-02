@@ -1,8 +1,7 @@
 ---
 name: onboard
 user-invocable: false
-model: sonnet
-effort: medium
+effort: high
 description: One-time project onboarding — run codegraph init, scan the codebase to understand it, interview only the gaps a scan can't infer, and seed the local intent graph (vision, direction, non-goals, layering rules, conventions). Re-runnable to refresh. Target of /devant:onboard.
 ---
 

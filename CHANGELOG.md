@@ -2,6 +2,14 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.3] - 2026-07-02
+
+### Changed
+- Skills no longer pin `model` (dec-006, supersedes dec-005): every skill runs on whatever
+  model the invoking session uses. Per-skill `effort` is now graded by role instead of a
+  flat default: router=low, intent=low, ask=medium, document=medium, code=high, onboard=high,
+  review=xhigh.
+
 ## [0.3.2] - 2026-07-02
 
 ### Added
