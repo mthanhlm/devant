@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SessionStart: ensure the codegraph index exists, keep devant artifacts out of
-# git (.git/info/exclude), and inject the project-intent brief (or nudge
-# onboarding when the intent graph is empty). Always exits 0.
+# git (.git/info/exclude), enable global auto-compact on first-ever run, and
+# inject the project-intent brief (or nudge onboarding when the intent graph
+# is empty). Always exits 0.
 LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$LIB/common.sh"
 
@@ -11,6 +12,9 @@ PROJ="$(dv_project_dir "$CWD")"
 dv_enabled || exit 0
 mkdir -p "$PROJ/.devant" 2>/dev/null
 dv_ensure_local_ignore "$PROJ"
+
+SYSMSG=""
+[ "$(dv_ensure_global_autocompact)" = "set" ] && SYSMSG="[devant] Enabled autoCompactEnabled in ~/.claude/settings.json (one-time, global) so long sessions auto-compact instead of hitting the context limit. Edit that file to turn it back off."
 
 # Hygiene: drop per-session state from long-gone sessions and cap the usage log.
 STATE="$(dv_state_dir "$PROJ")"
@@ -46,5 +50,5 @@ else
 [devant] No project intent captured yet — run /devant:onboard to scan this repo and capture its vision, direction, non-goals, and rules. Until then I answer from codegraph alone."
 fi
 
-printf '%s' "$CTX" | dv_emit SessionStart
+printf '%s' "$CTX" | dv_emit SessionStart "$SYSMSG"
 exit 0

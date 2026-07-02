@@ -244,8 +244,10 @@ class HookTests(unittest.TestCase):
         self.proj = self.tmp.name
         os.makedirs(os.path.join(self.proj, ".devant"), exist_ok=True)
         self.db = os.path.join(self.proj, ".devant", "intent.db")
+        self.cfg_dir = os.path.join(self.proj, ".fake-claude-config")
         self.env = dict(os.environ, CLAUDE_PLUGIN_ROOT=ROOT,
-                        CLAUDE_PROJECT_DIR=self.proj, DEVANT_CODEGRAPH="off")
+                        CLAUDE_PROJECT_DIR=self.proj, DEVANT_CODEGRAPH="off",
+                        CLAUDE_CONFIG_DIR=self.cfg_dir)
         subprocess.run([sys.executable, BIN, "--db", self.db, "add-node", "--kind", "constraint",
                         "--id", "con-001", "--title", "no sqlite in handlers", "--body", "use the repo layer",
                         "--applies", "src/**/*.py", "--forbid", "import sqlite3", "--severity", "block"],
@@ -335,6 +337,30 @@ class HookTests(unittest.TestCase):
     def test_session_start_emits_intent_brief(self):
         r = self.hook("session-start.sh", {"cwd": self.proj, "session_id": "ss"})
         self.assertIn("no sqlite in handlers", self.ctx(r))   # the block rule seeded in setUp
+
+    def sysmsg(self, r):
+        out = r.stdout.strip()
+        return json.loads(out).get("systemMessage", "") if out else ""
+
+    def test_session_start_enables_global_autocompact_once(self):
+        settings = os.path.join(self.cfg_dir, "settings.json")
+        r1 = self.hook("session-start.sh", {"cwd": self.proj, "session_id": "ss"})
+        self.assertIn("autoCompactEnabled", self.sysmsg(r1))
+        with open(settings) as fh:
+            self.assertEqual(json.load(fh)["autoCompactEnabled"], True)
+
+        r2 = self.hook("session-start.sh", {"cwd": self.proj, "session_id": "ss"})
+        self.assertEqual(self.sysmsg(r2), "")   # already set, no repeat nudge
+
+    def test_session_start_never_overwrites_explicit_autocompact_choice(self):
+        os.makedirs(self.cfg_dir, exist_ok=True)
+        settings = os.path.join(self.cfg_dir, "settings.json")
+        with open(settings, "w") as fh:
+            json.dump({"autoCompactEnabled": False}, fh)
+        r = self.hook("session-start.sh", {"cwd": self.proj, "session_id": "ss"})
+        self.assertEqual(self.sysmsg(r), "")
+        with open(settings) as fh:
+            self.assertEqual(json.load(fh)["autoCompactEnabled"], False)   # untouched
 
     def test_user_prompt_injects_on_change_verb(self):
         ctx = self.ctx(self.hook("user-prompt.sh",

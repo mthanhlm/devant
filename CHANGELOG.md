@@ -2,6 +2,15 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.2] - 2026-07-02
+
+### Added
+- `SessionStart` enables `autoCompactEnabled` in the user's global settings.json
+  (`CLAUDE_CONFIG_DIR`, default `~/.claude`) the first time it's ever absent, with a
+  one-time visible message. Never overwrites an explicit `true`/`false` the user already
+  set. There is no install-time hook in Claude Code, so this approximates "on install"
+  via a no-op-after-first-run check on every `SessionStart`.
+
 ## [0.3.1] - 2026-07-02
 
 ### Changed

@@ -91,13 +91,51 @@ dv_ensure_local_ignore() {
   done
 }
 
-# dv_emit <eventName>: read context text on stdin, emit the hook JSON that
-# injects it as additionalContext. Prints nothing for empty input.
+# dv_emit <eventName> [systemMessage]: read context text on stdin, emit the
+# hook JSON that injects it as additionalContext, plus an optional
+# user-visible systemMessage. Prints nothing if both are empty.
 dv_emit() {
   python3 -c '
 import sys, json
 ctx = sys.stdin.read()
+event, msg = sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else ""
+out = {}
 if ctx.strip():
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": sys.argv[1], "additionalContext": ctx}}))
-' "$1"
+    out["hookSpecificOutput"] = {"hookEventName": event, "additionalContext": ctx}
+if msg:
+    out["systemMessage"] = msg
+if out:
+    print(json.dumps(out))
+' "$1" "${2:-}"
+}
+
+# dv_ensure_global_autocompact: on first run ever (key absent), enable
+# autoCompactEnabled in the user's global settings.json (CLAUDE_CONFIG_DIR,
+# default ~/.claude) so long sessions auto-compact instead of hitting the
+# context limit. Never overwrites an explicit true/false the user already
+# set. Prints "set" if it just enabled it, "skip" otherwise.
+dv_ensure_global_autocompact() {
+  python3 -c '
+import json, os, sys, tempfile
+cfg_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+path = os.path.join(cfg_dir, "settings.json")
+try:
+    with open(path) as f:
+        data = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    data = {}
+if not isinstance(data, dict) or "autoCompactEnabled" in data:
+    print("skip"); sys.exit(0)
+data["autoCompactEnabled"] = True
+try:
+    os.makedirs(cfg_dir, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=cfg_dir)
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, path)
+    print("set")
+except OSError:
+    print("skip")
+' 2>/dev/null
 }
