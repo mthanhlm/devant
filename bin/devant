@@ -496,6 +496,8 @@ def _relevant(conn, path=None, area=None):
         # rules at write time regardless of whether they were injected, so scoping the heads-up
         # keeps prompts lean without weakening enforcement.
         if r["kind"] == "decision":
+            if r["status"] == "superseded":  # retired — its successor speaks now
+                continue
             # surface a decision only when the prompt overlaps its topic (title/body/rejected),
             # so a revived rejected path is challenged; skip generic accepted decisions.
             if area and _content_tokens(area) & _content_tokens(
@@ -665,8 +667,32 @@ def _git_deny_hit(sub, tokens):
         return "git branch -d/-D"
     if sub == "tag" and (opts & {"-d", "--delete"}):
         return "git tag -d"
-    if sub == "checkout" and ((opts & {"-f", "--force"}) or "--" in tokens):
-        return "git checkout (discard)"
+    if sub == "checkout":
+        if (opts & {"-f", "--force"}) or "--" in tokens:
+            return "git checkout (discard)"
+        # A pathspec (not a lone branch name) discards worktree changes: `git checkout .`,
+        # `git checkout HEAD file.py`. Branch-creating opts consume their value.
+        args, skip = [], False
+        try:
+            rest = tokens[tokens.index("checkout") + 1:]
+        except ValueError:
+            rest = []
+        for t in rest:
+            if skip:
+                skip = False
+            elif t in ("-b", "-B", "--orphan"):
+                skip = True
+            elif not t.startswith("-"):
+                args.append(t)
+        if len(args) > 1 or "." in args or "*" in args:
+            return "git checkout (discard)"
+    if sub == "restore":
+        # Default target is the worktree (discard); only a pure --staged restore is safe.
+        shorts = "".join(o[1:] for o in opts if not o.startswith("--"))
+        if "--worktree" in opts or "W" in shorts or not ("--staged" in opts or "S" in shorts):
+            return "git restore (discard)"
+    if sub == "switch" and (opts & {"--discard-changes", "-f", "--force"}):
+        return "git switch --discard-changes"
     if sub == "stash" and ("drop" in tokens or "clear" in tokens):
         return "git stash drop/clear"
     return None

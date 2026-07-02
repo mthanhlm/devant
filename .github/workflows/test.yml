@@ -1,0 +1,20 @@
+name: tests
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      # Exercises the CLI AND the bash hooks (edit guard, git guard, session/prompt/stop),
+      # so "the guards actually deny" is verified on every push, on every supported Python.
+      - run: python3 tests/test_devant.py

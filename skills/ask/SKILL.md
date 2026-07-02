@@ -3,7 +3,6 @@ name: ask
 user-invocable: false
 context: fork
 agent: Explore
-model: sonnet
 effort: medium
 description: devant specialist (router-invoked) for read-only Q&A about the codebase, grounded in codegraph and the intent graph — how/why/where something works, trace a flow, blast radius, or why a decision was made / where the project is headed. Never edits.
 ---

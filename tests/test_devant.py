@@ -13,10 +13,13 @@ import sys
 import tempfile
 import unittest
 from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN = os.path.join(ROOT, "bin", "devant")
-dv = SourceFileLoader("devant_mod", BIN).load_module()
+_spec = spec_from_loader("devant_mod", SourceFileLoader("devant_mod", BIN))
+dv = module_from_spec(_spec)
+_spec.loader.exec_module(dv)
 
 
 class PureFns(unittest.TestCase):
@@ -83,12 +86,18 @@ class PureFns(unittest.TestCase):
                   "git -C /repo push", "git push --force",
                   "git reset --hard HEAD~1", "git clean -fd", "git rm cached.py",
                   "git branch -D feat", "git tag -d v1", "git stash drop", "git stash clear",
-                  "git checkout -- file.py", "git filter-branch --all", "git filter-repo --invert"):
+                  "git checkout -- file.py", "git filter-branch --all", "git filter-repo --invert",
+                  "git checkout .", "git checkout HEAD~1 file.py",   # pathspec discard, no -- needed
+                  "git restore .", "git restore file.py", "git restore --staged --worktree .",
+                  "git restore -SW .", "git switch --discard-changes main", "git switch -f main"):
             self.assertEqual(dv.evaluate_bash(c)[0], "deny", c)
 
     def test_evaluate_bash_allows_readonly_and_nongit(self):
         for c in ("git status", "git diff", "git log --grep=push", "git branch",
-                  "git checkout main", "git reset HEAD file.py", "git clean -n",
+                  "git checkout main", "git checkout -b feat", "git checkout -b feat main",
+                  "git restore --staged file.py", "git restore -S file.py",
+                  "git switch main", "git switch -c feat",
+                  "git reset HEAD file.py", "git clean -n",
                   "git stash", "git stash pop", "git tag -l 'v*'",
                   "ls -la && grep foo bar.txt", 'echo "remember to git push later"',
                   "npm run build && node dist/server.js", "python3 -c 'print(2+2)'"):
@@ -138,6 +147,14 @@ class CliEndToEnd(unittest.TestCase):
         out = json.loads(self.dv("query", "way", "-j").stdout)
         ids = [n["id"] for n in out]
         self.assertNotIn("dec-001", ids)
+
+    def test_superseded_decision_not_surfaced_for_area(self):
+        self.dv("decide", "--title", "Use Postgres for storage", "--body", "considered", "--id", "dec-old")
+        self.dv("decide", "--title", "Use SQLite for storage", "--body", "single binary", "--supersedes", "dec-old")
+        rows = json.loads(self.dv("constraints", "--area", "switch storage to postgres", "-j").stdout)
+        ids = [r["id"] for r in rows]
+        self.assertNotIn("dec-old", ids)      # retired — must not resurface as live intent
+        self.assertIn("dec-001", ids)         # its successor still speaks for the topic
 
     def test_why_reaches_decision_and_goal_from_a_constraint_link(self):
         self.dv("add-node", "--kind", "vision", "--id", "vision-001", "--title", "maintainable", "--body", "v")
@@ -253,9 +270,16 @@ class HookTests(unittest.TestCase):
     def test_write_hook_denies_block_constraint(self):
         self.assertEqual(self.decision(self.w("src/app.py", "import sqlite3\n")), "deny")
 
-    def test_write_hook_allows_clean_and_records_touched(self):
+    def test_touched_recorded_by_post_hook_not_pre_hook(self):
+        # pre-hook only decides; a denied write must never count as touched
         self.assertEqual(self.decision(self.w("src/util.py", "def add(a, b):\n    return a + b\n")), "allow")
-        self.assertTrue(os.path.exists(os.path.join(self.proj, ".devant", "state", "h.touched")))
+        touched = os.path.join(self.proj, ".devant", "state", "h.touched")
+        self.assertFalse(os.path.exists(touched))
+        self.hook("post-tool-write.sh", {"cwd": self.proj, "session_id": "h", "tool_name": "Write",
+                                         "tool_input": {"file_path": os.path.join(self.proj, "src/util.py")}})
+        self.assertTrue(os.path.exists(touched))
+        with open(touched) as fh:
+            self.assertIn("src/util.py", fh.read())
 
     def test_write_hook_denies_secret_and_devant(self):
         self.assertEqual(self.decision(self.w("src/aws.py", "k = 'ghp_abcdefabcdefabcdefabcdefabcdef1234'\n")), "deny")
@@ -294,6 +318,16 @@ class HookTests(unittest.TestCase):
         with open(note) as fh:
             self.assertIn("TODO", fh.read())
 
+    def test_subagent_stop_preserves_touched_for_real_stop(self):
+        state = os.path.join(self.proj, ".devant", "state")
+        os.makedirs(state, exist_ok=True)
+        touched = os.path.join(state, "h.touched")
+        with open(touched, "w") as fh:
+            fh.write(os.path.join(self.proj, "src", "h.py") + "\n")
+        self.hook("stop.sh", {"cwd": self.proj, "session_id": "h", "hook_event_name": "SubagentStop"})
+        self.assertTrue(os.path.exists(touched))                                        # not consumed
+        self.assertFalse(os.path.exists(os.path.join(state, "h.lastturn")))             # no note yet
+
     def ctx(self, r):
         out = r.stdout.strip()
         return json.loads(out)["hookSpecificOutput"]["additionalContext"] if out else ""
@@ -317,6 +351,13 @@ class HookTests(unittest.TestCase):
     def test_user_prompt_skips_pure_question(self):
         r = self.hook("user-prompt.sh", {"cwd": self.proj, "session_id": "up3", "prompt": "how does the handler work?"})
         self.assertEqual(r.stdout.strip(), "")                # info-lead, no change signal -> no injection
+
+    def test_pre_compact_reprimes_discipline_block(self):
+        ev = {"cwd": self.proj, "session_id": "pc", "prompt": "fix the handler bug"}
+        self.assertIn("Before changing code", self.ctx(self.hook("user-prompt.sh", ev)))     # first change prompt primes
+        self.assertNotIn("Before changing code", self.ctx(self.hook("user-prompt.sh", ev)))  # deduped while primed
+        self.hook("pre-compact.sh", {"cwd": self.proj, "session_id": "pc", "trigger": "auto"})
+        self.assertIn("Before changing code", self.ctx(self.hook("user-prompt.sh", ev)))     # compaction re-primes
 
 
 if __name__ == "__main__":

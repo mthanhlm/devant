@@ -26,10 +26,11 @@ That's the whole surface. No menu of commands to learn.
   block rule (e.g. a planner reaching into the DB instead of reporting back) is **denied before it
   lands**, naming the sanctioned path and the decision behind it. A separate Bash guard **denies**
   `git commit`, `git push`, `git add`, and destructive git (history rewrite, `reset --hard`,
-  forced `clean`, branch/tag delete, `stash drop`/`clear`, discard `checkout`) — devant never
-  commits, pushes, or rewrites git state on your behalf; you do that manually. Both are cooperative
-  guards, not a sandbox — they raise the floor, they don't claim to stop a determined bypass
-  (`DEVANT=off` disables them).
+  forced `clean`, branch/tag delete, `stash drop`/`clear`, worktree-discarding
+  `checkout`/`restore`/`switch`) — devant never commits, pushes, or rewrites git state on your
+  behalf; you do that manually. Both are cooperative guards, not a sandbox — they raise the floor,
+  they don't claim to stop a determined bypass (`DEVANT=off` disables them, and commands hidden
+  inside `sh -c '…'` or `$(…)` aren't parsed).
 - **Pushes back.** Debt-prone or already-rejected requests get challenged before a line is written.
 - **Pushes you to verify.** Bugs want a failing repro test first; the Stop hook surfaces the
   impacted tests (`codegraph affected`) to run. devant *reminds and grounds* verification — it does

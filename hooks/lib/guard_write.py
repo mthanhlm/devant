@@ -2,15 +2,15 @@
 """PreToolUse(Write|Edit|MultiEdit) edit-guard helper.
 
 Reads the hook event JSON on stdin, evaluates the devant edit guard in-process (no shell
-field-splitting — the previous bash NUL round-trip silently broke the guard), records the
-touched file for the Stop reconciler, and prints the PreToolUse decision JSON (deny/ask) or
-nothing (allow). Always exits 0.
+field-splitting — the previous bash NUL round-trip silently broke the guard) and prints the
+PreToolUse decision JSON (deny/ask) or nothing (allow). Touched-file recording lives in the
+PostToolUse hook so only writes that actually happened are counted. Always exits 0.
 """
 import json
 import os
-import re
 import sys
 from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _BIN = None
@@ -27,7 +27,9 @@ def main():
     if not _BIN:
         return 0
     try:
-        dv = SourceFileLoader("devant_mod", _BIN).load_module()
+        spec = spec_from_loader("devant_mod", SourceFileLoader("devant_mod", _BIN))
+        dv = module_from_spec(spec)
+        spec.loader.exec_module(dv)
         d = json.load(sys.stdin)
     except Exception:
         return 0  # degrade silently; never block the session
@@ -42,7 +44,6 @@ def main():
     if not fp:
         return 0
     cwd = d.get("cwd") or ""
-    sid = re.sub(r"[^A-Za-z0-9_.-]", "_", d.get("session_id") or "_")  # slug: never let SID traverse paths
     if cwd and not os.environ.get("CLAUDE_PROJECT_DIR"):
         try:
             os.chdir(cwd)
@@ -62,16 +63,6 @@ def main():
         decision, reason = dv.evaluate_guard(rel, content, conn, file_exists=os.path.exists(fp))
     except Exception:
         return 0
-
-    if decision != "deny":
-        # allow/ask -> the edit will proceed; record it for the Stop reconciler.
-        try:
-            state = os.path.join(proj, ".devant", "state")
-            os.makedirs(state, exist_ok=True)
-            with open(os.path.join(state, sid + ".touched"), "a") as fh:
-                fh.write(fp + "\n")
-        except OSError:
-            pass
 
     if decision in ("deny", "ask"):
         print(json.dumps({"hookSpecificOutput": {

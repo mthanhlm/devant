@@ -8,6 +8,7 @@ import json
 import os
 import sys
 from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _BIN = None
@@ -24,7 +25,9 @@ def main():
     if not _BIN:
         return 0
     try:
-        dv = SourceFileLoader("devant_mod", _BIN).load_module()
+        spec = spec_from_loader("devant_mod", SourceFileLoader("devant_mod", _BIN))
+        dv = module_from_spec(spec)
+        spec.loader.exec_module(dv)
         d = json.load(sys.stdin)
     except Exception:
         return 0  # degrade silently; never block the session

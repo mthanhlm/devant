@@ -14,6 +14,14 @@ STATE="$(dv_state_dir "$PROJ")"
 NOTE=""
 
 TOUCHED="$STATE/${SID:-_}.touched"
+
+# A subagent finishing mid-turn shares the session id; keep the index fresh for it but
+# leave .touched for the real Stop — consuming it here would drop later main-turn edits.
+if [ "$(printf '%s' "$INPUT" | json_field hook_event_name)" = "SubagentStop" ]; then
+  [ -s "$TOUCHED" ] && dv_has_codegraph && (cd "$PROJ" 2>/dev/null && codegraph sync -q >/dev/null 2>&1)
+  exit 0
+fi
+
 # Only do real work on a turn that actually edited files (no-edit turns stay cheap).
 if [ -s "$TOUCHED" ]; then
   dv_has_codegraph && (cd "$PROJ" 2>/dev/null && codegraph sync -q >/dev/null 2>&1)

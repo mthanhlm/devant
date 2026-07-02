@@ -3,7 +3,6 @@ name: review
 user-invocable: false
 context: fork
 agent: Explore
-model: opus
 effort: xhigh
 description: devant specialist (router/code-invoked) for an INDEPENDENT read-only sanity review of a HIGH-RISK change before it's declared done — auth/authz, data migrations, concurrency, security-sensitive paths, public APIs, architecture changes, or a wide codegraph blast radius. One narrow job — "does this change make sense and is it safe to merge?" — grounded in codegraph and the intent graph. Never edits. Not for low/medium-risk changes (the code skill self-checks those).
 ---

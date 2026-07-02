@@ -12,6 +12,13 @@ dv_enabled || exit 0
 mkdir -p "$PROJ/.devant" 2>/dev/null
 dv_ensure_local_ignore "$PROJ"
 
+# Hygiene: drop per-session state from long-gone sessions and cap the usage log.
+STATE="$(dv_state_dir "$PROJ")"
+find "$STATE" -maxdepth 1 -type f \( -name '*.primed' -o -name '*.dangled' -o -name '*.lastturn' -o -name '*.touched' \) -mtime +7 -delete 2>/dev/null
+if [ -s "$STATE/usage.log" ] && [ "$(wc -l < "$STATE/usage.log" 2>/dev/null)" -gt 5000 ]; then
+  tail -n 1000 "$STATE/usage.log" > "$STATE/usage.log.new" 2>/dev/null && mv "$STATE/usage.log.new" "$STATE/usage.log"
+fi
+
 CTX=""
 if dv_has_codegraph; then
   ST="$(cd "$PROJ" 2>/dev/null && codegraph status -j 2>/dev/null)"

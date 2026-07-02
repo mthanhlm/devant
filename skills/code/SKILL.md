@@ -1,7 +1,6 @@
 ---
 name: code
 user-invocable: false
-model: sonnet
 effort: high
 description: devant specialist (router-invoked) to make a verified code change — implement, fix, refactor, debug-and-fix, or complete unfinished work — grounded in codegraph and the intent graph, sized by blast radius, surgical, and verified for logic (not just compilation). Used for substantial changes; the router does trivial edits inline.
 ---
