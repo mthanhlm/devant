@@ -2,6 +2,40 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.8.0] - 2026-07-04
+
+### Added
+- **`devant layout <file> --preset <p>`** — real ELK auto-layout for `.drawio` diagrams via the
+  new `bin/elk-layout.cjs` driver (elkjs, installed globally at onboarding; resolved through
+  `NODE_PATH=$(npm root -g)`). Python owns all XML with stdlib `xml.etree`; the node script is
+  JSON-in/JSON-out only, so `con-stdlib` holds. Presets: `verticalFlow`, `horizontalFlow`,
+  `verticalTree`, `horizontalTree`, `radialTree`, `organic`. Stale hand-routed edge waypoints are
+  dropped so draw.io re-routes. End-to-end tested (stacked 5-node chain → laid out, on-grid,
+  lint-clean).
+- **`drawio-lint` label-collision gate** — estimated Helvetica 12px font metrics (stdlib) catch
+  the perceptual defects the retired PNG pass used to: a label spilling onto a sibling node,
+  labels on labels, an edge label landing on a node (straight-line midpoint approximation with a
+  6px tolerance). Blocking, report-only (`--fix` never guesses a wording/size fix). Edge-riding
+  labels (`relative="1"`) are now exempt from grid/off-canvas checks. Red/green proven against
+  the 0.7.0 binary.
+- **`devant doctor`** now reports `node` and `elkjs` presence, and every absent tool ships its
+  remedy one-liner (`npm i -g @colbymchenry/codegraph`, `npm i -g elkjs`).
+- **Anti-sycophancy debate contract** (`dec-013`) — router step 2 and architect step 3 now require
+  holding ONE grounded recommendation through option discussions: a counter-question ("isn't B
+  better?") is a probe, not evidence; switch only on new evidence (concede explicitly) or an
+  explicit user-owned override (comply, restate the standing recommendation, record the decision
+  as user-owned). Adjacent-turn flip-flops with no new facts are a defect.
+
+### Changed
+- **codegraph is now mandatory** (`dec-011`): `/devant:onboard` installs it (and elkjs) itself via
+  `npm i -g` when absent (user-space, no sudo); the plugin still degrades gracefully without it.
+  README Requirements rewritten; the missing-codegraph SessionStart nudge now names the install
+  command.
+- **draw.io desktop CLI dropped entirely** (`dec-012`, supersedes the dec-007/dec-008 optional-CLI
+  path): the diagram done-path is now `devant layout` (ELK) + `devant drawio-lint --fix`
+  (geometry + label collisions). `skills/diagram/references/drawio-cli.md` deleted; SKILL, guide,
+  and README updated — no PNG export step, no xvfb, no Electron.
+
 ## [0.7.0] - 2026-07-03
 
 ### Added

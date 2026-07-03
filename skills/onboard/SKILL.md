@@ -11,7 +11,13 @@ Scan first, then ask only what a scan can't know. One pass, one confirmation, no
 explosion. The intent CLI is `python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant"` (`devant` below). Output
 goes only into the local intent graph — never commit anything.
 
-## 1. Init + scan (write only the index)
+## 1. Toolchain + init + scan (write only the index)
+- **Install the mandatory toolchain first** (dec-011). If `codegraph` is not on PATH:
+  `npm i -g @colbymchenry/codegraph` (user-space, no sudo; MIT). Also ensure the layout engine:
+  `node -e "require('elkjs')"` (with `NODE_PATH=$(npm root -g)`) — if it fails, `npm i -g elkjs`.
+  Verify with `codegraph --version`. If `npm` itself is missing, tell the user to install Node.js
+  (e.g. via nvm: https://github.com/nvm-sh/nvm) and continue the onboarding degraded — don't block
+  the interview on it.
 - `codegraph init -i` (builds/refreshes the local index for this repo).
 - `codegraph_files` for layout; read manifests (package.json / pyproject.toml / go.mod / …) for
   the stack; `codegraph_explore` on entrypoints (main/index/app/server/cmd) to see how work

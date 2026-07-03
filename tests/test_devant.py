@@ -8,6 +8,7 @@ guard/why/supersede/lint behavior is tested end-to-end through the CLI against a
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -459,6 +460,88 @@ class DrawioLint(unittest.TestCase):
         core = self.vertex("core", 407, 717, 16, 16, "ellipse;")
         p = self.write(self._model(ring + core))
         self.assertEqual(self.lint(p).returncode, 0, self.lint(p).stdout)
+
+    def test_label_spilling_onto_sibling_blocks(self):
+        # a's label is far wider than its 120px node and reaches b; nodes themselves don't overlap
+        a = ('<mxCell id="a" value="InventoryReconciliationSagaCoordinator Service" '
+             'style="rounded=1;" vertex="1" parent="1">'
+             '<mxGeometry x="100" y="100" width="120" height="60" as="geometry" /></mxCell>')
+        p = self.write(self._model(a + self.vertex("b", 260, 100, 120, 60)))
+        r = self.lint(p)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("labels colliding", r.stdout)
+        self.assertIn("a->b", r.stdout)
+
+    def test_wrapped_label_stays_inside_node_and_passes(self):
+        # same long text, but whiteSpace=wrap keeps it inside the node — no collision
+        a = ('<mxCell id="a" value="InventoryReconciliationSagaCoordinator Service" '
+             'style="rounded=1;whiteSpace=wrap;" vertex="1" parent="1">'
+             '<mxGeometry x="100" y="100" width="120" height="60" as="geometry" /></mxCell>')
+        p = self.write(self._model(a + self.vertex("b", 260, 100, 120, 60)))
+        r = self.lint(p)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_edge_label_on_node_blocks(self):
+        # a long edge label at the midpoint of a->b lands on bystander node c
+        edge = ('<mxCell id="e" value="recompute the projection" '
+                'style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" '
+                'source="a" target="b"><mxGeometry relative="1" as="geometry" /></mxCell>')
+        cells = (self.vertex("a", 100, 100) + self.vertex("b", 100, 300)
+                 + self.vertex("c", 200, 200) + edge)
+        r = self.lint(self.write(self._model(cells)))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("labels colliding", r.stdout)
+        self.assertIn("e->c", r.stdout)
+
+
+def _layout_toolchain_ok():
+    node = shutil.which("node")
+    if not node:
+        return False
+    r = subprocess.run([node, "-e", "require('elkjs')"], capture_output=True, env=dv._node_env())
+    return r.returncode == 0
+
+
+class ElkLayout(unittest.TestCase):
+    """`devant layout` — real ELK via the elkjs node driver, end to end."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    @unittest.skipUnless(_layout_toolchain_ok(), "node + elkjs not available")
+    def test_layout_untangles_stacked_chain_and_lints_clean(self):
+        # pathological input: a 5-node chain all stacked on the same coordinates
+        ids = ["a", "b", "c", "d", "e"]
+        cells = "".join('<mxCell id="%s" value="%s" style="rounded=1;" vertex="1" parent="1">'
+                        '<mxGeometry x="100" y="100" width="160" height="70" as="geometry" />'
+                        '</mxCell>' % (i, i) for i in ids)
+        cells += "".join('<mxCell id="e%d" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" '
+                         'edge="1" parent="1" source="%s" target="%s">'
+                         '<mxGeometry relative="1" as="geometry" /></mxCell>'
+                         % (n, ids[n], ids[n + 1]) for n in range(4))
+        p = os.path.join(self.tmp.name, "chain.drawio")
+        with open(p, "w") as fh:
+            fh.write('<mxfile host="devant"><diagram name="t" id="t"><mxGraphModel gridSize="10" '
+                     'pageWidth="1100" pageHeight="850"><root><mxCell id="0" />'
+                     '<mxCell id="1" parent="0" />' + cells + "</root></mxGraphModel></diagram></mxfile>")
+        r = subprocess.run([sys.executable, BIN, "layout", p, "--preset", "verticalFlow"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("laid out 5 node(s)", r.stdout)
+        import xml.etree.ElementTree as ET
+        by_id = {c.get("id"): c.find("mxGeometry")
+                 for c in ET.parse(p).getroot().findall(".//mxCell[@vertex='1']")}
+        coords = [(float(by_id[i].get("x")), float(by_id[i].get("y"))) for i in ids]
+        self.assertEqual(len(set(coords)), 5)                              # no longer stacked
+        ys = [y for _, y in coords]
+        self.assertEqual(ys, sorted(ys))                                   # DOWN: chain order preserved
+        for x, y in coords:
+            self.assertEqual((x % 10, y % 10), (0.0, 0.0))                 # snapped to the grid
+        lint = subprocess.run([sys.executable, BIN, "drawio-lint", p, "--fix"],
+                              capture_output=True, text=True)
+        self.assertEqual(lint.returncode, 0, lint.stdout + lint.stderr)
 
 
 if __name__ == "__main__":

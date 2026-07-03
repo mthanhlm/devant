@@ -29,14 +29,16 @@ The intent CLI is `python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant"`.
    ready-to-copy valid skeleton for each kind). devant's `.drawio` XML is self-contained — it needs
    no tool to produce or to open. Don't freehand styles; reuse the system so every diagram looks
    like one set.
-4. **The deliverable is the `.drawio` file.** Don't open a viewer unless asked. If the `drawio`
-   CLI is on PATH (optional, never required — detect per `references/drawio-cli.md`), you may run its
-   **ELK `--layout`** pass to auto-place nodes instead of hand-tuning coordinates — that just rewrites
-   the same `.drawio`. When the CLI is absent — the default — ship the hand-authored `.drawio` from
-   step 3. PNG export is no longer "off by default": step 6 uses a plain-PNG render as the visual
-   self-check when the CLI is present (that's how devant proves the diagram is clean, not just valid).
-   **No draw.io MCP is used, and the plugin never installs or requires the CLI** (dec-001 zero-install
-   stands; the CLI is an optional local tool like codegraph — it accelerates, it is never mandatory).
+4. **The deliverable is the `.drawio` file.** Don't open a viewer unless asked. Author with
+   *approximate* coordinates, then let real ELK place the nodes:
+   `python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant" layout <file> --preset <p>` — it runs the elkjs
+   engine (installed globally by `/devant:onboard`, dec-011/dec-012) via node and rewrites the same
+   `.drawio`. Presets: `verticalFlow` (activity flows, pipelines), `horizontalFlow`
+   (request/response chains), `verticalTree`/`horizontalTree` (hierarchies, layered architecture),
+   `radialTree` (hub-and-spoke), `organic` (many-edge networks). If node/elkjs is missing the
+   command says exactly what to install (`npm i -g elkjs`) — pass that on, and ship the
+   hand-placed XML meanwhile. **No draw.io desktop CLI and no MCP are used — ever** (dec-012
+   dropped them; elkjs + the linter replace them).
 5. **Write the file** to the target repo (create the dir if missing):
    - Architecture → `docs/diagrams/architecture-<name>.drawio`
    - Activity flow → `docs/diagrams/activity-<flow-name>.drawio`
@@ -46,28 +48,25 @@ The intent CLI is `python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant"`.
    - Default location is `docs/diagrams/` (committed, shareable). If the user asks for local-only,
      write to `.devant/docs/draw.io/` instead — that path is git-excluded.
 6. **Verify it's DONE — clean, not just that it opens.** A diagram that opens but has overlapping
-   boxes, crooked nodes, or tangled edges is *not* done. Gate delivery on this — no report-only, no
-   "looks fine to me":
+   boxes, crooked nodes, tangled edges, or labels sitting on other cells is *not* done. Gate
+   delivery on this — no report-only, no "looks fine to me":
    - **(a) Well-formed XML** — `python3 -c "import xml.dom.minidom,sys; xml.dom.minidom.parse(sys.argv[1])" <file>`.
-   - **(b) Geometry gate — ALWAYS, no CLI needed.** Run
+   - **(b) Layout** — run `devant layout <file> --preset <p>` (step 4) so node placement comes from
+     ELK, not hand-tuning. Skip only if node/elkjs is genuinely unavailable.
+   - **(c) The lint gate — ALWAYS, stdlib, no external tool.** Run
      `python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant" drawio-lint <file> --fix`. It auto-fixes what it
      safely can (straightens off-grid nodes, spreads overlapping ones) and **exits non-zero** while
-     any *blocking* defect remains — overlaps it couldn't resolve, non-orthogonal edges, edges
-     missing `<mxGeometry>`, duplicate ids, off-canvas cells. Fix those **by hand in the XML** (add
-     `edgeStyle=orthogonalEdgeStyle`, give the edge its child geometry, dedupe the id, move the node)
-     and **re-run until it exits 0.** This is real mechanical cleanup, not a report.
-   - **(c) Visual gate — the real "done" when the `drawio` CLI is on PATH.** Run ELK `--layout`, then
-     export a **plain PNG** (no `-e`; `xvfb-run` on Linux/WSL — see `references/drawio-cli.md`) and
-     **actually read the PNG yourself.** Fix the perceptual defects the geometry gate can't see —
-     labels sitting on a node's text or on another label, visual tangle, crowding — in the XML,
-     re-export and re-read. **Up to 2 rounds**, then deliver (note any residual issue rather than
-     looping forever).
-   - **(d) No CLI?** Deliver the geometry-clean `.drawio` and tell the user that installing the
-     draw.io CLI (see `references/drawio-cli.md`) unlocks the full visual self-check. Graceful
-     degradation — dec-007 core holds: the CLI is never required.
+     any *blocking* defect remains — overlaps it couldn't resolve, **label collisions** (a label
+     spilling onto a sibling node or another label, an edge label landing on a node — estimated
+     Helvetica metrics, the perceptual check that used to need a PNG render), non-orthogonal edges,
+     edges missing `<mxGeometry>`, duplicate ids, off-canvas cells. Fix those **by hand in the XML**
+     (shorten or `whiteSpace=wrap` the label, widen the node, move the label along its edge, add
+     `edgeStyle=orthogonalEdgeStyle`, give the edge its child geometry, dedupe the id) and
+     **re-run until it exits 0.** This is real mechanical cleanup, not a report.
 
-   **Done = well-formed AND `drawio-lint` exits 0 AND (CLI present → visually verified).** Then tell
-   the user it opens in draw.io / diagrams.net (or the VS Code Draw.io Integration extension).
+   **Done = well-formed AND laid out AND `drawio-lint` exits 0.** Then tell the user it opens in
+   draw.io / diagrams.net (or the VS Code Draw.io Integration extension) — if they want a PNG/SVG,
+   those apps export it; devant doesn't drive an export.
 
 Keep to the two kinds and the one style system. This skill draws; it does not design the
 architecture (that's `devant:architect`) or edit code.

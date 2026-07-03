@@ -4,9 +4,9 @@ The style system and two ready-to-copy skeletons the `diagram` skill uses. Goal:
 devant draws looks like part of one set — clean, consistent, and readable by a developer *and* a
 non-technical stakeholder. Follow this; don't freehand styles.
 
-For the optional draw.io CLI (ELK auto-layout + PNG/SVG/PDF export — never required), see
-`drawio-cli.md`. Authoring conventions here are informed by the official draw.io skill
-(jgraph/drawio-mcp, Apache-2.0) and Agents365-ai/drawio-skill (MIT).
+Node placement comes from real ELK: `devant layout <file> --preset <p>` (elkjs via node — SKILL
+step 4); no draw.io CLI or MCP is used (dec-012). Authoring conventions here are informed by the
+official draw.io skill (jgraph/drawio-mcp, Apache-2.0) and Agents365-ai/drawio-skill (MIT).
 
 A `.drawio` file is XML: `<mxfile>` → `<diagram>` → `<mxGraphModel>` → `<root>`. `<root>` always
 starts with cell `id="0"` and cell `id="1"` (the default layer); every shape/edge is a `<mxCell>`
@@ -338,14 +338,14 @@ Crossing or shape-piercing edges are what make a diagram look amateur. Keep them
   (bottom→top in a top-down diagram), reconsider node order first; only then add waypoints.
 
 Don't rely on eyeballing coordinates in your head — that's how overlaps and crooked nodes ship.
-Before saving, run the deterministic geometry check:
-`python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant" drawio-lint <file> --fix`. It straightens off-grid
-nodes, spreads real overlaps, and **exits non-zero** while any blocking defect remains — unresolved
-overlaps, non-orthogonal edges, edges missing geometry, duplicate ids, off-canvas cells — which you
-then fix by hand and re-run until it's clean (SKILL step 6b). The linter measures geometry; it
-**cannot** see label collisions — a label sitting on a node's text or on another label — or visual
-tangle. Those need the rendered PNG pass (SKILL step 6c, when the draw.io CLI is present), so still
-place labels with the §5 rules above (white background, offset, waypoints) as you author.
+Let ELK place the nodes (`devant layout <file> --preset <p>`, SKILL steps 4/6b), then run the
+deterministic check: `python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant" drawio-lint <file> --fix`. It
+straightens off-grid nodes, spreads real overlaps, and **exits non-zero** while any blocking defect
+remains — unresolved overlaps, **label collisions** (a spilled label reaching a sibling, labels on
+labels, an edge label on a node — estimated Helvetica metrics), non-orthogonal edges, edges missing
+geometry, duplicate ids, off-canvas cells — which you then fix by hand and re-run until it's clean
+(SKILL step 6c). Still place labels with the §5 rules above (white background, offset, waypoints)
+as you author — the linter estimates text extents; it doesn't excuse sloppy authoring.
 
 ## 6. Checklist before saving
 - Every box/step maps to something real in codegraph — no invented components.
@@ -360,5 +360,5 @@ place labels with the §5 rules above (white background, offset, waypoints) as y
   (kebab-case slug). Update in place if it exists.
 - Well-formed XML (`python3 -c "import xml.dom.minidom,sys; xml.dom.minidom.parse(sys.argv[1])" <file>`)
   and confirmed it opens in draw.io / diagrams.net.
-- `devant drawio-lint <file> --fix` exits 0 (geometry gate), and — when the draw.io CLI is present —
-  the rendered-PNG visual pass is clean (SKILL step 6).
+- `devant layout` has placed the nodes (ELK), and `devant drawio-lint <file> --fix` exits 0 —
+  the geometry AND label-collision gate (SKILL step 6).

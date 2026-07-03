@@ -36,7 +36,7 @@ if dv_has_codegraph; then
     CTX="CodeGraph not indexed yet — run /devant:onboard to build the index and capture project intent."
   fi
 else
-  CTX="codegraph CLI not found — structural queries fall back to Read/Grep."
+  CTX="codegraph CLI not found (mandatory — install: npm i -g @colbymchenry/codegraph, or run /devant:onboard which installs it) — structural queries fall back to Read/Grep until then."
 fi
 
 SUMMARY=""

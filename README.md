@@ -40,17 +40,15 @@ That's the whole surface. No menu of commands to learn.
 
 ## Requirements
 
-- **python3** (stdlib only — no third-party packages). This alone runs devant.
+- **python3** (stdlib only — no third-party packages). This alone runs devant's core.
+- **Node.js + the codegraph CLI** — mandatory for the real experience. `/devant:onboard` installs
+  it for you (`npm i -g @colbymchenry/codegraph`, user-space, no sudo) along with **elkjs**, the
+  layout engine behind `devant layout`. Without them, structural queries fall back to plain
+  Read/Grep and diagrams keep their hand-placed coordinates — degraded, not broken.
 
-For the complete experience, install both external CLIs (devant degrades gracefully without either):
-
-- The **codegraph** CLI on `PATH` (`codegraph`). Without it, structural features fall back to plain
-  Read/Grep.
-- The **draw.io desktop CLI** (`drawio`) — recommended for the `diagram` specialist. With it, a drawn
-  diagram is auto-laid-out (ELK) and **visually self-verified**: devant exports a PNG, reads it, and
-  fixes label collisions / tangle before delivering. Without it, diagrams still auto-fix their
-  geometry (grid alignment + overlaps via `devant drawio-lint --fix`) and ship clean, just without
-  the rendered visual pass. Install per `skills/diagram/references/drawio-cli.md`.
+Diagrams need no other tool: node placement is real ELK (`devant layout`, elkjs via node) and the
+delivery gate is `devant drawio-lint --fix` — geometry auto-fix plus label-collision detection with
+estimated font metrics. The draw.io desktop CLI is **not** used (dec-012 dropped it).
 
 ## Notes
 

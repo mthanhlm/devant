@@ -10,6 +10,7 @@ Read commands degrade quietly when the graph does not exist yet.
 """
 import argparse
 import functools
+import html
 import json
 import os
 import re
@@ -959,19 +960,40 @@ def cmd_doctor(args):
         for k in KINDS:
             counts[k] = conn.execute("SELECT COUNT(*) c FROM node WHERE kind=?", (k,)).fetchone()["c"]
     usage, dead = _usage_counts()
+    node_bin = shutil.which("node")
+    elkjs = "absent"
+    if node_bin:
+        try:
+            r = subprocess.run([node_bin, "-e", "require('elkjs')"], capture_output=True,
+                               text=True, env=_node_env(), timeout=20)
+            elkjs = "available" if r.returncode == 0 else "absent"
+        except (OSError, subprocess.TimeoutExpired):
+            pass
     report = {
         "guard_engine": "ok" if engine_ok else "BROKEN",
         "codegraph": "available" if cg_available() else "absent",
+        "node": "available" if node_bin else "absent",
+        "elkjs": elkjs,
         "intent_graph": "present" if conn is not None else "not onboarded (run /devant:onboard)",
         "node_counts": counts,
         "specialist_usage": usage,
         "never_used_specialists": dead,
     }
+    remedy = {
+        "codegraph": "npm i -g @colbymchenry/codegraph",
+        "elkjs": "npm i -g elkjs",
+        "node": "install Node.js (e.g. via nvm)",
+    }
     if args.json:
         print(json.dumps(report))
     else:
+        def line(key, label):
+            v = report[key]
+            print("%s %s" % (label, v if v == "available" else "%s — install: %s" % (v, remedy[key])))
         print("guard engine: %s" % report["guard_engine"])
-        print("codegraph:    %s" % report["codegraph"])
+        line("codegraph", "codegraph:   ")
+        line("node", "node:        ")
+        line("elkjs", "elkjs:       ")
         print("intent graph: %s" % report["intent_graph"])
         if counts:
             print("nodes:        " + ", ".join("%s=%d" % (k, counts[k]) for k in KINDS if counts.get(k)))
@@ -1066,6 +1088,68 @@ def _overlaps(a, b):
     return dx < 0 and dy < 0
 
 
+LABEL_LINE_H = 15  # draw.io line height at its default Helvetica 12px
+
+_TAG_RE = re.compile(r"<[^>]+>")
+_BREAK_RE = re.compile(r"<br\s*/?>|</div>\s*<div[^>]*>|</p>\s*<p[^>]*>", re.I)
+
+
+def _text_w(s, size=12):
+    """Approximate rendered width of one line in Helvetica <size>px. Exact metrics need a font
+    engine; per-class advance-width factors are within ~10% — enough to catch real spill."""
+    w = 0.0
+    for ch in s:
+        if ch in "iljI.,:;!|' ":
+            w += 0.30
+        elif ch in "ftr()[]{}\"-/\\":
+            w += 0.40
+        elif ch in "mwMW@%":
+            w += 0.95
+        elif ch.isupper() or ch.isdigit():
+            w += 0.68
+        else:
+            w += 0.54
+    return w * size
+
+
+def _label_lines(value):
+    """Visible text lines of a cell value (draw.io values may carry HTML markup)."""
+    if not value:
+        return []
+    text = html.unescape(_TAG_RE.sub("", _BREAK_RE.sub("\n", value)))
+    return [ln.strip() for ln in text.split("\n") if ln.strip()]
+
+
+def _vertex_label_rect(box, cell):
+    """Estimated bounding rect (x, y, w, h) of a vertex's centred label, or None if unlabeled."""
+    lines = _label_lines(cell.get("value"))
+    if not lines:
+        return None
+    st = _drawio_style(cell.get("style"))
+    widths = [_text_w(ln) for ln in lines]
+    if st.get("whiteSpace") == "wrap":
+        cap = max(box.w - 8, 20)
+        n = sum(max(1, int((w + cap - 1) // cap)) for w in widths)
+        lw, lh = min(max(widths), cap), n * LABEL_LINE_H
+    else:
+        lw, lh = max(widths), len(lines) * LABEL_LINE_H
+    return (box.x + box.w / 2 - lw / 2, box.y + box.h / 2 - lh / 2, lw, lh)
+
+
+def _rect_overlap(a, b, pad):
+    """True when rects a and b intersect by more than <pad> px on both axes."""
+    ox = min(a[0] + a[2], b[0] + b[2]) - max(a[0], b[0])
+    oy = min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1])
+    return ox > pad and oy > pad
+
+
+def _spills(rect, box):
+    """True when a label rect extends beyond its own node's box (with 2px slack)."""
+    x, y, w, h = rect
+    return (x < box.x - 2 or y < box.y - 2
+            or x + w > box.x + box.w + 2 or y + h > box.y + box.h + 2)
+
+
 def cmd_drawio_lint(args):
     """Check (and with --fix, auto-fix) a .drawio for the defects that make diagrams look
     amateur: off-grid coords, overlapping/too-close nodes, non-orthogonal edges, off-canvas
@@ -1093,12 +1177,17 @@ def cmd_drawio_lint(args):
         if c.get("parent"):
             parents.add(c.get("parent"))
 
-    boxes, skips, negative = [], [], []
+    boxes, skips, negative, edge_children = [], [], [], []
     for c in cells:
         if c.get("vertex") != "1":
             continue
         geo = c.find("mxGeometry")
         if geo is None:
+            continue
+        if geo.get("relative") == "1":
+            # a label riding its parent edge — positioned by a [-1,1] parameter, not absolute
+            # coordinates; grid/overlap rules don't apply, the label pass below handles it.
+            edge_children.append(c)
             continue
         try:
             x = float(geo.get("x", "0")); y = float(geo.get("y", "0"))
@@ -1162,6 +1251,59 @@ def cmd_drawio_lint(args):
                 m.moved = True
     unresolved = [(a.cell.get("id"), b.cell.get("id")) for a, b in overlaps()]
 
+    # Label collisions — the perceptual defect the retired PNG visual pass used to catch
+    # (dec-012): a label wider than its node spilling onto a sibling, or an edge label landing
+    # on a node. Estimated font metrics; computed on post-fix coordinates. Report-only: a good
+    # fix (shorten, wrap, widen, move) is a judgment call, so --fix never guesses one.
+    vmap = {b.cell.get("id"): b for b in boxes + skips}
+    cmap = {c.get("id"): c for c in cells}
+    label_rects = []  # (rect, owner_id, owner_box|None, parent_group, pad)
+    for b in boxes:
+        r = _vertex_label_rect(b, b.cell)
+        if r is not None and _spills(r, b):
+            label_rects.append((r, b.cell.get("id"), b, b.parent, 2))
+    riders = [(c, c) for c in cells if c.get("edge") == "1"]
+    riders += [(ch, cmap.get(ch.get("parent"))) for ch in edge_children]
+    for label_cell, edge in riders:
+        lines = _label_lines(label_cell.get("value"))
+        if not lines or edge is None or edge.get("edge") != "1":
+            continue
+        src, tgt = vmap.get(edge.get("source")), vmap.get(edge.get("target"))
+        if src is None or tgt is None:
+            continue
+        geo = label_cell.find("mxGeometry")
+        gx, off = 0.0, (0.0, 0.0)
+        if geo is not None:
+            try:
+                gx = float(geo.get("x", "0") or 0)
+            except (TypeError, ValueError):
+                gx = 0.0
+            pt = next((p for p in geo.findall("mxPoint") if p.get("as") == "offset"), None)
+            if pt is not None:
+                off = (float(pt.get("x", "0") or 0), float(pt.get("y", "0") or 0))
+        t = 0.5 + max(-1.0, min(1.0, gx)) / 2.0  # straight-line approximation of the edge path
+        sx, sy = src.x + src.w / 2, src.y + src.h / 2
+        tx, ty = tgt.x + tgt.w / 2, tgt.y + tgt.h / 2
+        lw = max(_text_w(ln) for ln in lines)
+        lh = len(lines) * LABEL_LINE_H
+        rect = (sx + t * (tx - sx) + off[0] - lw / 2, sy + t * (ty - sy) + off[1] - lh / 2, lw, lh)
+        # pad 6: the approximation can drift from the routed path — only flag clear hits
+        label_rects.append((rect, label_cell.get("id"), None, edge.get("parent"), 6))
+    label_hits = []
+    for rect, owner, obox, par, pad in label_rects:
+        for b in groups.get(par, []):
+            if obox is b:
+                continue
+            if obox is not None and (_contains(b, obox) or _contains(obox, b)):
+                continue  # nested/concentric shapes deliberately layer their labels
+            if _rect_overlap(rect, (b.x, b.y, b.w, b.h), pad):
+                label_hits.append("%s->%s" % (owner, b.cell.get("id")))
+    for i in range(len(label_rects)):
+        for j in range(i + 1, len(label_rects)):
+            ra, rb = label_rects[i], label_rects[j]
+            if ra[3] == rb[3] and ra[1] != rb[1] and _rect_overlap(ra[0], rb[0], max(ra[4], rb[4])):
+                label_hits.append("%s<->%s" % (ra[1], rb[1]))
+
     non_ortho, no_geo = [], []
     for c in cells:
         if c.get("edge") != "1":
@@ -1193,6 +1335,7 @@ def cmd_drawio_lint(args):
     blocking = False
     for label, items in [
         ("overlapping nodes (couldn't auto-resolve — space them by hand)", unresolved),
+        ("labels colliding (shorten/wrap the label, widen the node, or move the label)", label_hits),
         ("non-orthogonal edges (add edgeStyle=orthogonalEdgeStyle)", non_ortho),
         ("edges missing <mxGeometry> (won't render)", no_geo),
         ("duplicate ids (cells silently drop)", dup_ids),
@@ -1206,6 +1349,117 @@ def cmd_drawio_lint(args):
     if not blocking:
         print("%s: clean." % os.path.basename(path))
     return 1 if blocking else 0
+
+
+# ------------------------------------------------------------ layout (elkjs)
+
+LAYOUT_PRESETS = ["verticalFlow", "horizontalFlow", "verticalTree", "horizontalTree",
+                  "radialTree", "organic"]
+
+
+def _node_env():
+    """os.environ plus NODE_PATH pointing at the global npm root, so the elk driver's
+    require('elkjs') resolves the globally-installed package (installed by /devant:onboard)."""
+    env = dict(os.environ)
+    npm = shutil.which("npm")
+    if npm:
+        try:
+            root = subprocess.run([npm, "root", "-g"], capture_output=True, text=True,
+                                  timeout=15).stdout.strip()
+            if root:
+                env["NODE_PATH"] = root + ((os.pathsep + env["NODE_PATH"]) if env.get("NODE_PATH") else "")
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return env
+
+
+def cmd_layout(args):
+    """Auto-place the top-level nodes of a .drawio with real ELK (elkjs via node). Python owns
+    all XML (stdlib); the node driver only computes positions. Nested cells move with their
+    parent (child geometry is parent-relative), so containers keep their internal layout."""
+    path = args.file
+    try:
+        tree = ET.parse(path)
+    except ET.ParseError as exc:
+        sys.stderr.write("devant: %s is not well-formed XML: %s\n" % (path, exc))
+        return 1
+    model = tree.getroot().find(".//mxGraphModel")
+    groot = model.find("root") if model is not None else None
+    if groot is None:
+        sys.stderr.write("devant: %s has no <mxGraphModel><root> (compressed, or not a .drawio?)\n" % path)
+        return 1
+    cells = groot.findall("mxCell")
+    parent_of = {c.get("id"): c.get("parent") for c in cells if c.get("id")}
+    nodes, geos = [], {}
+    for c in cells:
+        if c.get("vertex") != "1" or c.get("parent") != "1":
+            continue
+        geo = c.find("mxGeometry")
+        if geo is None or geo.get("relative") == "1":
+            continue
+        try:
+            w = float(geo.get("width", "0") or 0)
+            h = float(geo.get("height", "0") or 0)
+        except (TypeError, ValueError):
+            continue
+        if w <= 0 or h <= 0:
+            continue
+        nodes.append({"id": c.get("id"), "width": w, "height": h})
+        geos[c.get("id")] = geo
+    if len(nodes) < 2:
+        print("nothing to lay out (fewer than 2 top-level nodes)")
+        return 0
+
+    def top_ancestor(cid):
+        seen = set()
+        while cid and cid not in seen:
+            if cid in geos:
+                return cid
+            seen.add(cid)
+            cid = parent_of.get(cid)
+        return None
+
+    edges, edge_cells = [], []
+    for c in cells:
+        if c.get("edge") != "1":
+            continue
+        s, t = top_ancestor(c.get("source")), top_ancestor(c.get("target"))
+        if s and t and s != t:
+            edges.append({"source": s, "target": t})
+            edge_cells.append(c)
+
+    node_bin = shutil.which("node")
+    if not node_bin:
+        sys.stderr.write("devant: node not found — layout needs Node.js "
+                         "(e.g. via nvm), then: npm i -g elkjs\n")
+        return 1
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "elk-layout.cjs")
+    proc = subprocess.run([node_bin, script],
+                          input=json.dumps({"preset": args.preset, "nodes": nodes, "edges": edges}),
+                          capture_output=True, text=True, env=_node_env(), timeout=60)
+    if proc.returncode:
+        sys.stderr.write(proc.stderr or "devant: elk layout failed\n")
+        return 1
+    positions = json.loads(proc.stdout)["positions"]
+    margin = 40
+    for nid, p in positions.items():
+        g = geos.get(nid)
+        if g is None:
+            continue
+        g.set("x", str(_snap(float(p["x"]) + margin)))
+        g.set("y", str(_snap(float(p["y"]) + margin)))
+    for c in edge_cells:  # hand-routed waypoints fight the new positions; drop so draw.io re-routes
+        g = c.find("mxGeometry")
+        if g is not None:
+            for arr in list(g.findall("Array")):
+                if arr.get("as") == "points":
+                    g.remove(arr)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(ET.tostring(tree.getroot(), encoding="unicode"))
+        fh.write("\n")
+    print("laid out %d node(s), %d edge(s) with ELK '%s' — now run: devant drawio-lint %s --fix"
+          % (len(nodes), len(edges), args.preset, path))
+    return 0
 
 
 # ------------------------------------------------------------------- parser
@@ -1300,10 +1554,16 @@ def build_parser():
     lg.add_argument("intent", nargs="*")
     lg.set_defaults(func=cmd_log)
 
-    dl = sub.add_parser("drawio-lint", help="check/auto-fix a .drawio for grid/overlap/edge defects")
+    dl = sub.add_parser("drawio-lint", help="check/auto-fix a .drawio for grid/overlap/edge/label defects")
     dl.add_argument("file")
     dl.add_argument("--fix", action="store_true", help="grid-snap + spread overlaps in place")
     dl.set_defaults(func=cmd_drawio_lint)
+
+    ly = sub.add_parser("layout", help="auto-layout a .drawio with real ELK (elkjs via node)")
+    ly.add_argument("file")
+    ly.add_argument("--preset", default="verticalFlow", choices=LAYOUT_PRESETS,
+                    help="ELK algorithm preset (default: verticalFlow)")
+    ly.set_defaults(func=cmd_layout)
 
     return p
 
