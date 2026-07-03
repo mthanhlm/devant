@@ -2,6 +2,24 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.0] - 2026-07-03
+
+### Added
+- Router **step 1.5 "Sharpen the ask"** — a scoped prompt-engineering pre-pass grounded in
+  Anthropic's published prompting best practices (and the Console prompt improver's scoping):
+  a clear or trivial request skips it with zero ceremony; a vague one is restated as
+  **outcome + scope + done-condition** in a ≤3-line "Treating this as: … object if wrong"
+  restatement; materially different readings hard-stop and ask which one. Specialists now
+  receive the *sharpened* ask. Recorded as `dec-010` (rejected: hook-based rewriting — hooks
+  can only inject context, and bash vagueness heuristics misfire; always-on gate — taxes the
+  fast path).
+  - New `skills/router/references/prompt-guide.md` — distilled, stable Anthropic principles
+    (done-condition first, golden rule, clear-and-direct, motivation, positive instructions,
+    minimal restatement) plus complex-ask-only techniques (XML tags, 3–5 examples, role framing).
+  - New `docs/diagrams/activity-router.drawio` — the router pipeline with step 1.5, drawn and
+    visually verified via the dec-008 gate (lint 0 + PNG read).
+  - Markdown-only: no Python, hooks, or tests touched (con-stdlib and dec-001 zero-install hold).
+
 ## [0.6.0] - 2026-07-03
 
 ### Added

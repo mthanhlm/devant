@@ -17,6 +17,14 @@ You are the single entry point. Produce ONE coherent result. The intent CLI is
 - No intent graph yet? Answer from codegraph alone and tell the user to run
   `/devant:onboard` to capture vision/direction/rules. Do not start an interview mid-request.
 
+## 1.5 Sharpen the ask (scoped — keep the fast path fast)
+A clear or trivial request skips this with zero ceremony (same scoping as the push-back debate).
+If the request is vague or under-specified, restate it per `references/prompt-guide.md` as
+**outcome + scope + done-condition** and show a ≤3-line restatement — "Treating this as: <…>.
+Proceeding — object if wrong." — then continue without waiting. If it admits materially different
+readings, hard-stop and ask which one. From here on, work from the sharpened ask, not the raw
+wording.
+
 ## 2. Push back BEFORE doing (the user is not always right)
 If the request is wrong-layer, debt-prone, contradicts an active constraint/non-goal, revives a
 rejected decision (check `devant why <symbol>` / the injected rules), or is already satisfied by
@@ -41,8 +49,8 @@ too — a trivial or already-clear request skips the debate and takes the fast p
 | vision / direction / decisions / "record this" / "why are we allowed to X" | invoke the `devant:intent` skill |
 
 Dispatching is mandatory for substantial work — inlining it instead of using the specialist is
-the failure devant exists to prevent. When you dispatch, pass the relevant constraints/area so
-the specialist starts grounded.
+the failure devant exists to prevent. When you dispatch, pass the sharpened ask (step 1.5) plus
+the relevant constraints/area so the specialist starts grounded.
 
 ## 4. Size by blast radius, never line count (keep simple work fast)
 Use `codegraph_impact`/`codegraph_callers`. **Trivial** (no downstream callers / no affected
