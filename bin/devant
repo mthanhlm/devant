@@ -26,7 +26,7 @@ PREFIX = {
     "decision": "dec", "constraint": "con", "nongoal": "nongoal", "note": "note",
 }
 EDGE_KINDS = ["refines", "realizes", "supersedes", "rejects", "establishes", "constrains", "relates"]
-SPECIALISTS = ["ask", "code", "document", "intent", "onboard"]
+SPECIALISTS = ["ask", "code", "document", "intent", "architect", "diagram", "onboard"]
 
 
 # ---------------------------------------------------------------- location/db

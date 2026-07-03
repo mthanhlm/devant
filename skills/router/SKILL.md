@@ -27,6 +27,8 @@ doesn't need building. Otherwise name the cheaper correct path and ask whether t
 | Request | Route |
 |---|---|
 | question / how·why·where / trace / impact | invoke the `devant:ask` skill (read-only) |
+| design / architect a change *before* building it / "design X first" / vet an approach | invoke the `devant:architect` skill (read-only; design in chat, approval-gated) |
+| draw / diagram / draw.io / visualize the architecture or a flow | invoke the `devant:diagram` skill |
 | change code: implement / fix / refactor / debug | size it (step 4) → trivial: do it inline; substantial: invoke the `devant:code` skill |
 | write or update docs | invoke the `devant:document` skill |
 | vision / direction / decisions / "record this" / "why are we allowed to X" | invoke the `devant:intent` skill |
@@ -43,4 +45,4 @@ Never decompose a small change for process; there is no fixed pipeline.
 
 ## 5. Disclose & log
 End with a one-line note of what you did: `route: <specialist> · <why>`. Then record it:
-`python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant" log <ask|code|document|intent> "<short intent>"`.
+`python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant" log <ask|code|document|intent|architect|diagram> "<short intent>"`.

@@ -2,6 +2,24 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.0] - 2026-07-03
+
+### Added
+- Two new router-only specialist skills (dec-007):
+  - `devant:architect` — design-first pass grounded in codegraph + the intent graph that
+    surfaces the critical decisions/failure modes a request glosses over (data model,
+    failure handling, concurrency, migration/rollback, security, scaling, coupling,
+    testing), presents current-vs-proposed in chat, approval-gates, then renders the design
+    via `devant:diagram` and hands off to `devant:code`. Never writes code or plan files.
+  - `devant:diagram` — draws C4-style architecture and standard UML activity diagrams as
+    self-contained `.drawio` (mxGraph XML) into `docs/diagrams/`, grounded in real code.
+    Ships a full style + template guide (palette, layout, edge-crossing rules, XML
+    well-formedness, valid skeletons). Optional `drawio` desktop CLI is used only for ELK
+    auto-layout; the plugin never installs or requires it (zero-install baseline holds), and
+    no draw.io MCP is used. Default deliverable is the `.drawio` file only — no image export.
+- Router routing table gains `design`/`architect` and `draw`/`diagram` rows; `architect` and
+  `diagram` added to the specialist set so routes are logged.
+
 ## [0.3.3] - 2026-07-02
 
 ### Changed
