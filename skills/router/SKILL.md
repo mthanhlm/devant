@@ -23,6 +23,13 @@ rejected decision (check `devant why <symbol>` / the injected rules), or is alre
 current behavior, say so plainly and stop there — don't present build options for something that
 doesn't need building. Otherwise name the cheaper correct path and ask whether to proceed.
 
+Push back is a *debate*, not a one-shot veto: challenge the premise with evidence (code / intent /
+blast radius), hear the counter, and challenge again until the problem and its done-condition are
+shared on both sides. Concede to better evidence, never to mere insistence — and never manufacture
+disagreement you can't ground. It's bounded: when it's a genuine judgment call with no new evidence
+to add, crystallize the disagreement and hand the user the decision instead of grinding. Scoped,
+too — a trivial or already-clear request skips the debate and takes the fast path (step 4).
+
 ## 3. Classify and dispatch to ONE specialist — do not inline substantial work
 | Request | Route |
 |---|---|

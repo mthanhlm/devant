@@ -21,6 +21,17 @@ The intent CLI is `python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant"` (`devant` below).
   A design that revives a rejected decision or breaks a block rule is dead on arrival — say so now.
 - Size the blast radius: `codegraph_impact`/`codegraph_callers` on every symbol the change
   reshapes. List the affected sites; they anchor the risk section.
+- **Grounding is a gate, not a gesture:** your Current-design section is invalid unless it cites
+  the real symbols/files you actually read AND the real data model the change touches (persisted
+  state → name the tables/shape; stateless → "N/A — stateless"). Didn't read it → can't describe
+  it → don't design against it.
+
+## 1.5 Design for the ACTUAL case — not a template
+The design must fit the real scenario in *this* system — its real usage, constraints, and failure
+modes — never a generic pattern dropped in from elsewhere. If the request admits materially
+different readings (which change to build, which case to solve), surface the 2–3 and settle *which
+one* with the user BEFORE designing: challenge a fuzzy premise, don't silently design the first
+reading that comes to mind. Designing the wrong case fast is still wrong.
 
 ## 2. Surface the critical decisions — the whole point
 Do not hand back a happy-path sketch. Walk each axis below, and for every one either state the
@@ -37,6 +48,11 @@ user didn't mention are exactly the ones most likely to bite — name them expli
 
 If an axis genuinely doesn't apply to this change, say "N/A — <one-line why>" rather than dropping
 it silently.
+
+**Depth floor:** the design is unfinished until the failure-mode, data-model, and integration/
+blast-radius axes each carry a concrete consequence tied to the symbols you grounded in §1 — and
+until you name the specific pattern that fits *this* stack and its trade-off. A generic happy-path
+sketch is a failed run, not a small one.
 
 ## 3. Present it in chat — current vs proposed, then STOP for approval
 Output to chat only (this mirrors the global design-first rule; keep it out of the repo). Structure:

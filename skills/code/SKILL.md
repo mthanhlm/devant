@@ -42,6 +42,9 @@ refactors or reformatting. Remove only the orphans your change created.
 - **Pre-existing vs new:** if the touched suite was already red, state which failures you introduced
   vs inherited — don't claim a regression you didn't cause or hide one you did.
 - **Lint/typecheck the changed files.** Report honestly, including failures.
+- **Green is the exit, not the checklist:** "done" means the verification above actually came back
+  green; red you caused is *not* done — loop back and fix, then re-verify. (When retries stop
+  teaching you anything new, §5 governs the stop.)
 
 ## 5. When stuck, stop — don't loop
 If a fix→test cycle fails ~2–3 times **without new evidence** (same failure, nothing new learned),

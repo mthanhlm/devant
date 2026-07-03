@@ -22,5 +22,8 @@ The intent CLI is `python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant"`.
   `devant query <text>`.
 - Answer concretely, citing the files/symbols (codegraph) and decisions (intent) you relied on.
   If something isn't grounded in either, say so — flag it as an assumption, don't assert it.
+- If the question rests on a premise the code or intent contradicts, challenge it with that
+  evidence — don't just answer as asked. Grounded challenge only; concede to better evidence, and
+  when it's a genuine judgment call lay out both sides rather than insist.
 - Keep private intent (vision, rejected paths, decisions) in your answer to the user only; never
   propose pasting it into commits, PRs, or code comments.

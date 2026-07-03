@@ -2,6 +2,28 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.0] - 2026-07-03
+
+### Changed
+- Make devant a **grounded debating peer, not a servant** — applies the "goal loop" discipline
+  (define done, ground in real code/data, debate to shared clarity) as prose, with no
+  `/loop`·`/schedule`·`/goal` runtime and zero new deps (dec-001 holds). Recorded as direction
+  `dir-003`.
+  - `devant:architect` — grounding is now a **gate**: the current-design section must cite the
+    real symbols/files and data model actually read (else "N/A — stateless"). New `§1.5`
+    **case-awareness** gate: design for the actual scenario in *this* system and settle materially
+    different readings with the user *before* designing. `§2` **depth floor**: unfinished until
+    failure-mode/data-model/blast-radius axes carry concrete consequences tied to grounded symbols
+    and name the pattern that fits this stack — a generic happy-path sketch is a failed run.
+  - `devant:router` — push-back upgraded from a one-shot veto to a **sustained, grounded,
+    bounded, scoped debate**: challenge with evidence, concede only to better evidence (never to
+    insistence), and hand the user a clean decision on genuine judgment calls; trivial/clear
+    requests keep the fast path.
+  - `devant:ask` — challenge a question's premise when the code/intent contradicts it, grounded
+    and read-only, instead of answering as asked.
+  - `devant:code` — `§4` makes **green the explicit exit** ("done" = verification actually green;
+    red you caused is not done → fix and re-verify). `§5`'s evidence-based stop is unchanged.
+
 ## [0.4.1] - 2026-07-03
 
 ### Changed
