@@ -14,6 +14,14 @@ parented to `"1"` (or to a container). Vertices carry `vertex="1"` + `<mxGeometr
 edges carry `edge="1"` + `source`/`target`. Both skeletons below are valid and open as-is in
 draw.io / diagrams.net or the VS Code "Draw.io Integration" extension.
 
+**Above all — completeness with restraint.** A devant diagram must let a first-time reader (dev or
+not) understand the *whole* story **without a verbal walkthrough** — and then stop. Show every step,
+branch, **loop**, and error path that changes what happens, plus the key data on each edge; fold
+away anything that doesn't change the reader's understanding. Both extremes fail equally: a skeleton
+that hides the real branches/loops leaves the reader asking "but what happens when…?", and a wall of
+boxes nobody can trace is just as useless. The bar is **minimal questions** — if a reasonable reader
+would have to ask, the answer belongs on the diagram.
+
 ---
 
 ## 1. Style system (use these exact values)
@@ -249,6 +257,19 @@ action/decision in the real code path (codegraph the flow). Colour error paths/s
 </mxfile>
 ```
 
+**Loops — a loop is a loop.** When the flow repeats (a retry, a poll, "back to the menu"), draw a
+single **back-edge** from the later action to the one it returns to, labelled with the repeat guard
+(`[retry ≤ 3]`, `[still pending]`, `[choose again]`). Never fake a loop by cloning the repeated
+actions inline — that hides that it *is* a loop and desyncs the moment the body changes. Route the
+back-edge out to the side with a waypoint so it doesn't run through the boxes it connects, and give
+it an arc jump where it crosses a forward edge:
+
+```xml
+<mxCell id="loop" value="[retry ≤ 3]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="a5" target="a3">
+  <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="640" y="410" /></Array></mxGeometry>
+</mxCell>
+```
+
 **Swimlanes / partitions (optional).** To assign actions to responsible parties (e.g. *Customer* vs
 *System*), wrap the flow in a `swimlane` pool with one lane per party and parent each action to its
 lane (child coordinates are relative to the lane):
@@ -298,8 +319,19 @@ Crossing or shape-piercing edges are what make a diagram look amateur. Keep them
     </mxGeometry>
   </mxCell>
   ```
-- **Give edge labels a white background** (`labelBackgroundColor=#FFFFFF`) so they stay legible where
-  a line passes behind them.
+- **When two edges genuinely must cross, make the crossing unambiguous — use a line jump.** Add
+  `jumpStyle=arc;jumpSize=10;` to the edge style so draw.io draws an arc hop where one line passes
+  over another instead of an ambiguous `+`. Apply it to the crossing edge (typically a loop
+  back-edge or a long connector). A jump is not a licence to stop reducing crossings — move a node
+  first; jump only what must genuinely cross.
+- **Keep every label off other text — this is the classic mess.** An edge label must never land on a
+  node's text or on another edge's label (e.g. two edges' labels colliding mid-canvas). Fixes, in
+  order: (1) route the edge so its midpoint has clear space — a waypoint, or a different exit/entry
+  side; (2) give the label a white background (`labelBackgroundColor=#FFFFFF`) so it occludes what it
+  covers; (3) slide it along the edge with an offset
+  (`<mxGeometry x="-0.4" relative="1" as="geometry"><mxPoint as="offset" /></mxGeometry>` on the
+  edge). Parallel edges running side by side need **≥ 40 px** between them or their labels touch — if
+  they're closer, space the nodes out or fan the connection points apart.
 - **Spacing scales with size** — more nodes ⇒ more gap. If two shapes ever visually touch, push them
   ≥ 120 px apart rather than shrinking them.
 - **One dominant direction.** If you find yourself drawing an edge *backwards* against the flow
@@ -307,14 +339,20 @@ Crossing or shape-piercing edges are what make a diagram look amateur. Keep them
 
 Before saving, eyeball the layout as if it were exported and fix: overlapping shapes, clipped
 labels (widen the node), arrows that don't touch their target, off-canvas cells, edges crossing an
-unrelated shape, and stacked/overlapping edges. These are the same defects a rendered self-check
-would catch — catch them here since devant draws XML-only with no render step.
+unrelated shape, stacked/overlapping edges, **any label sitting on a node's text or on another
+label** (the Image-#1 defect), and **any crossing that isn't an arc jump**. These are the same
+defects a rendered self-check would catch — catch them here since devant draws XML-only with no
+render step.
 
 ## 6. Checklist before saving
 - Every box/step maps to something real in codegraph — no invented components.
+- **Complete, not crowded**: every real branch, loop, and error path is shown, and nothing that
+  doesn't change the reader's understanding is — a first-time reader needs no walkthrough.
+- Every repeat is a single labelled **back-edge** (loop drawn as a loop), never cloned nodes.
 - Colours used only per the palette table; a legend explains them.
-- Every edge is labelled (interaction for architecture; guard for decision branches).
-- One flow direction; minimal edge crossings; coordinates on the 10 px grid.
+- Every edge is labelled (interaction for architecture; guard for decision/loop branches).
+- One flow direction; crossings minimised and any unavoidable one uses an **arc line-jump**; no
+  label sits on a node's text or another label; coordinates on the 10 px grid.
 - Filename: `docs/diagrams/architecture-<name>.drawio` or `activity-<flow-name>.drawio`
   (kebab-case slug). Update in place if it exists.
 - Well-formed XML (`python3 -c "import xml.dom.minidom,sys; xml.dom.minidom.parse(sys.argv[1])" <file>`)

@@ -21,8 +21,11 @@ The intent CLI is `python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant"`.
    to get the actual containers, modules, data stores, and the real call/flow path the diagram
    depicts. A box or step that doesn't map to something in the graph doesn't belong on the diagram.
 3. **Author the styled mxGraph XML — the always-available baseline.** Build it by following
-   `references/drawio-guide.md` (read it — palette with hex, node sizing, edge conventions and
-   crossing-avoidance, layout rules, the legend block, the XML well-formedness rules, and a
+   `references/drawio-guide.md` (read it — palette with hex, node sizing, edge conventions, the
+   completeness bar (show *enough* that a first-time reader needs no walkthrough — every real
+   branch, loop, and error path — but no clutter), loops-as-loops (a repeat is a labelled
+   back-edge, never cloned nodes), arc line-jumps on unavoidable crossings, keeping labels off other
+   text, layout rules, the legend block, the XML well-formedness rules, and a
    ready-to-copy valid skeleton for each kind). devant's `.drawio` XML is self-contained — it needs
    no tool to produce or to open. Don't freehand styles; reuse the system so every diagram looks
    like one set.

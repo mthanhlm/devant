@@ -51,6 +51,11 @@ Output to chat only (this mirrors the global design-first rule; keep it out of t
 6. **Verification plan** — how the eventual implementation will be proven (repro test for a bug,
    asserting tests for new behavior).
 
+Hold every picture you sketch here — the ASCII before/after now, and the rendered `.drawio` on
+approval — to the same bar as devant's diagram guide: **show enough that the reader needs no
+walkthrough** (every real branch, loop, and error path — a loop drawn as a loop) and no more. A
+before/after that raises the obvious "but what about…?" questions hasn't done its job.
+
 Then **stop at an explicit approval gate.** You do not write code, you do not scaffold, and you do
 not drop a plan/spec/design `.md` into the repo — devant keeps designs in chat and captures durable
 choices with `devant decide`.

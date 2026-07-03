@@ -2,6 +2,22 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.1] - 2026-07-03
+
+### Changed
+- `devant:diagram` + `devant:architect` clarity rules — diagrams must show *enough* that a
+  first-time reader (dev or not) understands the whole story with no walkthrough, and no more.
+  Added to the draw.io guide (and surfaced in both SKILL.md files):
+  - **Completeness bar**: show every real step, branch, loop, and error path that changes what
+    happens, plus key edge data; fold away anything that doesn't. Bar = minimal questions.
+  - **Loops-as-loops**: a repeat is a single labelled back-edge (`[retry ≤ 3]`), routed out with
+    a waypoint — never cloned nodes. Ships a copy-ready loop-edge snippet.
+  - **Arc line-jumps**: unavoidable edge crossings use `jumpStyle=arc;jumpSize=10;` so a crossing
+    reads as an arc hop, not an ambiguous intersection.
+  - **Label-overlap avoidance**: an edge label must never sit on a node's text or another label;
+    ordered fixes (reroute → white background → offset along edge) and ≥ 40 px between parallel
+    edges. Extended the pre-save eyeball list and section-6 checklist accordingly.
+
 ## [0.4.0] - 2026-07-03
 
 ### Added
