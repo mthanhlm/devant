@@ -2,6 +2,31 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.0] - 2026-07-03
+
+### Added
+- `devant:diagram` **real-done beauty gate** — a diagram is no longer "done" just because it opens;
+  it must be provably clean (no overlaps, crooked nodes, or tangled edges) before delivery.
+  - New **`devant drawio-lint <file> [--fix]`** subcommand (stdlib `xml.etree`, dec-001 holds).
+    `--fix` **auto-fixes** what's safe — grid-snaps crooked nodes straight, spreads real overlaps to
+    a 40px gap — and **exits non-zero** while any judgment-needing defect remains (unresolved
+    overlaps, non-orthogonal edges, edges missing geometry, duplicate ids, off-canvas cells). Only
+    *position* snaps (not sizes); nested/concentric shapes (e.g. a UML final-node core) are left
+    alone. Recorded as `dec-008`.
+  - `SKILL.md` step 6 is now a two-tier gate: **(always)** `drawio-lint --fix` until it exits 0;
+    **(draw.io CLI present — the real "done")** ELK layout, export a plain PNG, *read it*, and fix
+    the perceptual defects the linter can't measure (label collisions, tangle) — ≤2 rounds.
+    Degrades gracefully with no CLI (dec-007 core preserved: the CLI is never required).
+  - `README` names **codegraph + the draw.io CLI** as the prerequisites for the full experience;
+    the `drawio-cli.md`/`drawio-guide.md` references flip from "export off by default" to the
+    plain-PNG visual self-check.
+
+### Changed
+- Plugin-wide **no report-only** discipline: the Stop hook now leads every edit turn with "deliver
+  real, verified work — actually run it and show real output, not a report of what you would do."
+  Read-only-by-design specialists (`ask`/`architect`/`review`) stay non-editing by contract.
+  Recorded as `dec-009`.
+
 ## [0.5.0] - 2026-07-03
 
 ### Changed

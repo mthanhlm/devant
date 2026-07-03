@@ -19,6 +19,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 
 KINDS = ["vision", "direction", "goal", "idea", "decision", "constraint", "nongoal", "note"]
 PREFIX = {
@@ -1018,6 +1019,195 @@ def cmd_dead_skills(args):
     return 0
 
 
+# ------------------------------------------------------------ drawio-lint
+
+DRAWIO_GRID = 10
+DRAWIO_GAP = 40  # min clear space between sibling nodes (guide §1)
+
+
+def _drawio_style(style):
+    """Parse a draw.io style string ('k=v;flag;') into a dict; flags map to True."""
+    d = {}
+    for part in (style or "").split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        k, sep, v = part.partition("=")
+        d[k.strip()] = v.strip() if sep else True
+    return d
+
+
+def _snap(v):
+    return int(round(v / DRAWIO_GRID)) * DRAWIO_GRID
+
+
+class _Box:
+    __slots__ = ("cell", "geo", "x", "y", "w", "h", "parent", "moved")
+
+    def __init__(self, cell, geo, x, y, w, h):
+        self.cell, self.geo = cell, geo
+        self.x, self.y, self.w, self.h = x, y, w, h
+        self.parent = cell.get("parent")
+        self.moved = False
+
+
+def _contains(a, b):
+    """True if box b sits fully inside box a (deliberate nesting, e.g. a UML final-node core)."""
+    return a.x <= b.x and a.y <= b.y and a.x + a.w >= b.x + b.w and a.y + a.h >= b.y + b.h
+
+
+def _overlaps(a, b):
+    """True only for a real collision: the boxes intersect and neither encloses the other.
+    Merely-close-but-separated nodes (normal for connected flow steps) are not flagged."""
+    if _contains(a, b) or _contains(b, a):
+        return False
+    dx = max(b.x - (a.x + a.w), a.x - (b.x + b.w))
+    dy = max(b.y - (a.y + a.h), a.y - (b.y + b.h))
+    return dx < 0 and dy < 0
+
+
+def cmd_drawio_lint(args):
+    """Check (and with --fix, auto-fix) a .drawio for the defects that make diagrams look
+    amateur: off-grid coords, overlapping/too-close nodes, non-orthogonal edges, off-canvas
+    cells, duplicate ids, edges missing geometry. Exit 0 only when nothing remains."""
+    path = args.file
+    try:
+        tree = ET.parse(path)
+    except ET.ParseError as exc:
+        sys.stderr.write("devant: %s is not well-formed XML: %s\n" % (path, exc))
+        return 1
+    root = tree.getroot()
+    model = root.find(".//mxGraphModel")
+    groot = model.find("root") if model is not None else None
+    if groot is None:
+        sys.stderr.write("devant: %s has no <mxGraphModel><root> (compressed, or not a .drawio?)\n" % path)
+        return 1
+    cells = groot.findall("mxCell")
+
+    seen, dup_ids, parents = set(), [], set()
+    for c in cells:
+        cid = c.get("id")
+        if cid in seen:
+            dup_ids.append(cid)
+        seen.add(cid)
+        if c.get("parent"):
+            parents.add(c.get("parent"))
+
+    boxes, skips, negative = [], [], []
+    for c in cells:
+        if c.get("vertex") != "1":
+            continue
+        geo = c.find("mxGeometry")
+        if geo is None:
+            continue
+        try:
+            x = float(geo.get("x", "0")); y = float(geo.get("y", "0"))
+            w = float(geo.get("width", "0")); h = float(geo.get("height", "0"))
+        except (TypeError, ValueError):
+            continue
+        if x < 0 or y < 0:
+            negative.append(c.get("id"))
+        st = _drawio_style(c.get("style"))
+        # containers, swimlanes and dashed boundary boxes legitimately enclose other cells —
+        # never move them and never count them as overlapping their own children.
+        contains = (c.get("id") in parents or "swimlane" in st
+                    or (st.get("dashed") == "1" and st.get("fillColor") == "none"))
+        (skips if contains else boxes).append(_Box(c, geo, x, y, w, h))
+
+    # a box centred inside another (e.g. a UML final-node core) is deliberately placed — grid
+    # alignment is about position of free-standing nodes, so leave nested/concentric shapes alone.
+    def nested(b):
+        return any(o is not b and _contains(o, b) for o in boxes + skips)
+
+    off_grid = [b.cell.get("id") for b in boxes
+                if not nested(b) and (b.x % DRAWIO_GRID or b.y % DRAWIO_GRID)]
+
+    fixing = bool(args.fix)
+    if fixing:  # snap only x/y (position), and only for free-standing nodes — not sizes, not nested shapes
+        for b in boxes:
+            if nested(b):
+                continue
+            nx, ny = _snap(b.x), _snap(b.y)
+            if (nx, ny) != (b.x, b.y):
+                b.x, b.y = nx, ny
+                b.moved = True
+
+    groups = {}
+    for b in boxes:
+        groups.setdefault(b.parent, []).append(b)
+
+    def overlaps():
+        out = []
+        for grp in groups.values():
+            for i in range(len(grp)):
+                for j in range(i + 1, len(grp)):
+                    if _overlaps(grp[i], grp[j]):
+                        out.append((grp[i], grp[j]))
+        return out
+
+    initial_overlaps = overlaps()
+    if fixing:
+        for _ in range(40):  # bounded: one move can create a new overlap; a few passes settle it
+            pairs = overlaps()
+            if not pairs:
+                break
+            for a, m in pairs:  # move the later sibling (m) clear of a, minimal non-negative shift
+                cands = [(a.x + a.w + DRAWIO_GAP, m.y), (m.x, a.y + a.h + DRAWIO_GAP)]  # right, down
+                if a.x - DRAWIO_GAP - m.w >= 0:
+                    cands.append((a.x - DRAWIO_GAP - m.w, m.y))                          # left
+                if a.y - DRAWIO_GAP - m.h >= 0:
+                    cands.append((m.x, a.y - DRAWIO_GAP - m.h))                          # up
+                nx, ny = min(cands, key=lambda p: abs(p[0] - m.x) + abs(p[1] - m.y))
+                m.x, m.y = _snap(nx), _snap(ny)
+                m.moved = True
+    unresolved = [(a.cell.get("id"), b.cell.get("id")) for a, b in overlaps()]
+
+    non_ortho, no_geo = [], []
+    for c in cells:
+        if c.get("edge") != "1":
+            continue
+        if "orthogonalEdgeStyle" not in (c.get("style") or ""):
+            non_ortho.append(c.get("id"))
+        if c.find("mxGeometry") is None:
+            no_geo.append(c.get("id"))
+
+    if fixing and any(b.moved for b in boxes):
+        def num(v):
+            return str(int(v)) if float(v).is_integer() else str(v)
+        for b in boxes:
+            if b.moved:
+                b.geo.set("x", num(b.x)); b.geo.set("y", num(b.y))
+                b.geo.set("width", num(b.w)); b.geo.set("height", num(b.h))
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(ET.tostring(root, encoding="unicode"))
+            fh.write("\n")
+
+    if fixing:
+        if off_grid:
+            print("fixed: straightened %d off-grid node(s) to the %dpx grid" % (len(off_grid), DRAWIO_GRID))
+        resolved = len(initial_overlaps) - len(unresolved)
+        if resolved > 0:
+            print("fixed: spread %d overlapping node pair(s)" % resolved)
+    # Only genuine defects fail the gate. Off-grid is a straightening nicety (auto-fixed above),
+    # never a reason to block delivery.
+    blocking = False
+    for label, items in [
+        ("overlapping nodes (couldn't auto-resolve — space them by hand)", unresolved),
+        ("non-orthogonal edges (add edgeStyle=orthogonalEdgeStyle)", non_ortho),
+        ("edges missing <mxGeometry> (won't render)", no_geo),
+        ("duplicate ids (cells silently drop)", dup_ids),
+        ("off-canvas cells (negative x/y)", negative),
+    ]:
+        if items:
+            blocking = True
+            print("%s: %s" % (label, ", ".join(str(i) for i in items)))
+    if not fixing and off_grid:
+        print("off-grid nodes (cosmetic; run --fix to straighten): %s" % ", ".join(off_grid))
+    if not blocking:
+        print("%s: clean." % os.path.basename(path))
+    return 1 if blocking else 0
+
+
 # ------------------------------------------------------------------- parser
 
 def build_parser():
@@ -1109,6 +1299,11 @@ def build_parser():
     lg.add_argument("specialist", choices=SPECIALISTS)
     lg.add_argument("intent", nargs="*")
     lg.set_defaults(func=cmd_log)
+
+    dl = sub.add_parser("drawio-lint", help="check/auto-fix a .drawio for grid/overlap/edge defects")
+    dl.add_argument("file")
+    dl.add_argument("--fix", action="store_true", help="grid-snap + spread overlaps in place")
+    dl.set_defaults(func=cmd_drawio_lint)
 
     return p
 

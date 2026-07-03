@@ -26,9 +26,12 @@ fi
 if [ -s "$TOUCHED" ]; then
   dv_has_codegraph && (cd "$PROJ" 2>/dev/null && codegraph sync -q >/dev/null 2>&1)
 
+  NOTE="Before you claim done: deliver real, verified work — actually run it and show real output, not a report of what you would do."
+
   if dv_has_codegraph; then
     AFF="$(sed "s#^$PROJ/##" "$TOUCHED" | sort -u | (cd "$PROJ" 2>/dev/null && codegraph affected --stdin -q 2>/dev/null) | head -20)"
-    [ -n "$AFF" ] && NOTE="Impacted tests to run and confirm green (compiling is not 'done'):
+    [ -n "$AFF" ] && NOTE="${NOTE}
+Impacted tests to run and confirm green (compiling is not 'done'):
 $AFF"
   fi
 

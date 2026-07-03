@@ -337,12 +337,15 @@ Crossing or shape-piercing edges are what make a diagram look amateur. Keep them
 - **One dominant direction.** If you find yourself drawing an edge *backwards* against the flow
   (bottom→top in a top-down diagram), reconsider node order first; only then add waypoints.
 
-Before saving, eyeball the layout as if it were exported and fix: overlapping shapes, clipped
-labels (widen the node), arrows that don't touch their target, off-canvas cells, edges crossing an
-unrelated shape, stacked/overlapping edges, **any label sitting on a node's text or on another
-label** (the Image-#1 defect), and **any crossing that isn't an arc jump**. These are the same
-defects a rendered self-check would catch — catch them here since devant draws XML-only with no
-render step.
+Don't rely on eyeballing coordinates in your head — that's how overlaps and crooked nodes ship.
+Before saving, run the deterministic geometry check:
+`python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant" drawio-lint <file> --fix`. It straightens off-grid
+nodes, spreads real overlaps, and **exits non-zero** while any blocking defect remains — unresolved
+overlaps, non-orthogonal edges, edges missing geometry, duplicate ids, off-canvas cells — which you
+then fix by hand and re-run until it's clean (SKILL step 6b). The linter measures geometry; it
+**cannot** see label collisions — a label sitting on a node's text or on another label — or visual
+tangle. Those need the rendered PNG pass (SKILL step 6c, when the draw.io CLI is present), so still
+place labels with the §5 rules above (white background, offset, waypoints) as you author.
 
 ## 6. Checklist before saving
 - Every box/step maps to something real in codegraph — no invented components.
@@ -357,3 +360,5 @@ render step.
   (kebab-case slug). Update in place if it exists.
 - Well-formed XML (`python3 -c "import xml.dom.minidom,sys; xml.dom.minidom.parse(sys.argv[1])" <file>`)
   and confirmed it opens in draw.io / diagrams.net.
+- `devant drawio-lint <file> --fix` exits 0 (geometry gate), and — when the draw.io CLI is present —
+  the rendered-PNG visual pass is clean (SKILL step 6).

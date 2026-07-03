@@ -386,5 +386,80 @@ class HookTests(unittest.TestCase):
         self.assertIn("Before changing code", self.ctx(self.hook("user-prompt.sh", ev)))     # compaction re-primes
 
 
+class DrawioLint(unittest.TestCase):
+    """The diagram beauty gate: geometry defects are auto-fixed; semantic ones block (exit 1)."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, xml):
+        p = os.path.join(self.tmp.name, "d.drawio")
+        with open(p, "w") as fh:
+            fh.write(xml)
+        return p
+
+    def lint(self, path, fix=False):
+        args = [sys.executable, BIN, "drawio-lint", path] + (["--fix"] if fix else [])
+        return subprocess.run(args, capture_output=True, text=True)
+
+    def _model(self, cells):
+        return ('<mxfile host="devant"><diagram name="t" id="t"><mxGraphModel gridSize="10" '
+                'pageWidth="1100" pageHeight="850"><root><mxCell id="0" />'
+                '<mxCell id="1" parent="0" />' + cells + "</root></mxGraphModel></diagram></mxfile>")
+
+    def vertex(self, i, x, y, w=160, h=70, style="rounded=1;"):
+        return ('<mxCell id="%s" value="%s" style="%s" vertex="1" parent="1">'
+                '<mxGeometry x="%s" y="%s" width="%s" height="%s" as="geometry" /></mxCell>'
+                % (i, i, style, x, y, w, h))
+
+    def test_fix_snaps_grid_and_spreads_overlap(self):
+        # a is off-grid (193,47); b overlaps a
+        p = self.write(self._model(self.vertex("a", 193, 47) + self.vertex("b", 210, 60)))
+        self.assertEqual(self.lint(p).returncode, 1)                       # dirty before
+        r = self.lint(p, fix=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)             # auto-fixed to clean
+        self.assertIn("straightened", r.stdout)
+        self.assertIn("spread", r.stdout)
+        import xml.etree.ElementTree as ET
+        geos = ET.parse(p).getroot().findall(".//mxCell[@vertex='1']/mxGeometry")
+        coords = [(int(float(g.get("x"))), int(float(g.get("y")))) for g in geos]
+        for x, y in coords:
+            self.assertEqual((x % 10, y % 10), (0, 0))                     # on the grid
+        (ax, ay), (bx, by) = coords
+        self.assertTrue(abs(ax - bx) >= 160 or abs(ay - by) >= 70)        # no longer overlapping
+        self.assertEqual(self.lint(p).returncode, 0)                      # idempotent: stays clean
+
+    def test_non_orthogonal_edge_blocks(self):
+        edge = ('<mxCell id="e" value="x" style="rounded=0;" edge="1" parent="1" source="a" '
+                'target="b"><mxGeometry relative="1" as="geometry" /></mxCell>')
+        p = self.write(self._model(self.vertex("a", 100, 100) + self.vertex("b", 100, 300) + edge))
+        r = self.lint(p, fix=True)                                        # --fix can't fix routing
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("non-orthogonal", r.stdout)
+        self.assertIn("e", r.stdout)
+
+    def test_clean_diagram_passes_untouched(self):
+        edge = ('<mxCell id="e" value="calls" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" '
+                'edge="1" parent="1" source="a" target="b">'
+                '<mxGeometry relative="1" as="geometry" /></mxCell>')
+        p = self.write(self._model(self.vertex("a", 100, 100) + self.vertex("b", 100, 300) + edge))
+        with open(p) as fh:
+            before = fh.read()
+        r = self.lint(p, fix=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("clean", r.stdout)
+        with open(p) as fh:
+            self.assertEqual(fh.read(), before)                           # no rewrite when nothing to fix
+
+    def test_concentric_shapes_not_flagged_as_overlap(self):
+        # UML final node: a filled core deliberately centred inside a ring — must not be an "overlap"
+        ring = self.vertex("ring", 400, 710, 30, 30, "ellipse;")
+        core = self.vertex("core", 407, 717, 16, 16, "ellipse;")
+        p = self.write(self._model(ring + core))
+        self.assertEqual(self.lint(p).returncode, 0, self.lint(p).stdout)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

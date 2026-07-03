@@ -40,9 +40,17 @@ That's the whole surface. No menu of commands to learn.
 
 ## Requirements
 
-- The **codegraph** CLI on `PATH` (`codegraph`). Without it, structural features degrade to plain
-  Read/Grep and devant still works.
-- **python3** (stdlib only — no third-party packages).
+- **python3** (stdlib only — no third-party packages). This alone runs devant.
+
+For the complete experience, install both external CLIs (devant degrades gracefully without either):
+
+- The **codegraph** CLI on `PATH` (`codegraph`). Without it, structural features fall back to plain
+  Read/Grep.
+- The **draw.io desktop CLI** (`drawio`) — recommended for the `diagram` specialist. With it, a drawn
+  diagram is auto-laid-out (ELK) and **visually self-verified**: devant exports a PNG, reads it, and
+  fixes label collisions / tangle before delivering. Without it, diagrams still auto-fix their
+  geometry (grid alignment + overlaps via `devant drawio-lint --fix`) and ship clean, just without
+  the rendered visual pass. Install per `skills/diagram/references/drawio-cli.md`.
 
 ## Notes
 

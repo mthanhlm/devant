@@ -1,10 +1,12 @@
 # Optional: the draw.io desktop CLI
 
 devant draws self-contained `.drawio` XML with **no tools required**. If the user has installed the
-draw.io **desktop CLI**, this skill uses it for one thing by default: **ELK auto-layout** (so you
-don't hand-tune coordinates) — it rewrites the same `.drawio`. Image export (PNG/SVG/PDF) is
-supported but **off by default**; devant's deliverable is the `.drawio` file, which the user reads
-and edits themselves. The CLI is **optional** and the plugin never installs or requires it.
+draw.io **desktop CLI**, this skill uses it for two things: **ELK auto-layout** (so you don't
+hand-tune coordinates) and a **plain-PNG render for the visual self-check** — the SKILL step-6 gate
+exports the diagram, reads the PNG, and fixes what the geometry linter can't see (label collisions,
+tangle) before declaring done. Both just help; devant's deliverable is still the `.drawio` file. The
+CLI is **optional** and the plugin never installs or requires it — with no CLI, the geometry gate
+(`devant drawio-lint --fix`) still runs and the diagram degrades gracefully.
 
 > Adapted from the official draw.io Claude Code skill (jgraph/drawio-mcp, Apache-2.0) and the
 > Agents365-ai/drawio-skill (MIT). devant uses only the CLI, no MCP.
@@ -80,19 +82,22 @@ drawio -x -f xml --layout verticalFlow -o diagram.drawio diagram.drawio
 Match the preset to devant's flow direction: activity → `verticalFlow`; layered architecture →
 `horizontalFlow` or `verticalTree`.
 
-## Export to an image (OFF by default — only when the user explicitly asks)
+## Export a PNG for the visual self-check (SKILL step 6c)
 
-devant's deliverable is the `.drawio` file. Only run an export if the user asks for a PNG/SVG/PDF.
+When the CLI is present, the step-6 gate renders a **plain PNG** (no `-e`), reads it, fixes the
+perceptual defects the geometry linter can't measure — labels sitting on a node's text or on another
+label, visual tangle, crowding — then re-exports and re-reads. **Cap at 2 rounds**; if something
+still isn't perfect, deliver and note it rather than looping.
 
 ```bash
-drawio -x -f png -e -b 10 -o diagram.drawio.png diagram.drawio     # png | svg | pdf
+drawio -x -f png -b 10 -o diagram.png diagram.drawio               # plain PNG for reading back
 ```
-- `-e` embeds the diagram XML so the exported file reopens as an editable diagram — use the double
-  extension `name.drawio.png` to signal that.
-- Do **not** export a Mermaid `.mmd` straight to PNG with `-e` (broken in current Desktop) — always
-  produce the `.drawio` first, then export it.
-- Known issue: `-e` PNG output can have a truncated final chunk; if a strict PNG reader rejects it,
-  re-export as SVG or without `-e`.
+- Use **plain PNG (no `-e`)** for the self-check: `-e` embeds the XML but its PNG output can have a
+  truncated final chunk that a strict reader rejects — you're only *looking* at this render, not
+  re-importing it, so skip `-e` and avoid the bug.
+- If the user separately wants an **editable** image to keep, *that* export uses `-e` with a double
+  extension (`name.drawio.png`) so it reopens as a diagram. Don't export a Mermaid `.mmd` straight to
+  PNG with `-e` (broken in current Desktop) — always produce the `.drawio` first, then export it.
 
 ## Opening the result (only if the user asks)
 
