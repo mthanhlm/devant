@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SessionStart: ensure the codegraph index exists, keep devant artifacts out of
+# SessionStart: report the devant graph index, keep devant artifacts out of
 # git (.git/info/exclude), enable global auto-compact on first-ever run, and
 # inject the project-intent brief (or nudge onboarding when the intent graph
 # is empty). Always exits 0.
@@ -33,19 +33,16 @@ if [ -s "$STATE/usage.log" ] && [ "$(wc -l < "$STATE/usage.log" 2>/dev/null)" -g
 fi
 
 CTX=""
-if dv_has_codegraph; then
-  ST="$(cd "$PROJ" 2>/dev/null && codegraph status -j 2>/dev/null)"
-  FILES="$(printf '%s' "$ST" | json_field fileCount)"
-  if [ "$(printf '%s' "$ST" | json_field initialized)" = "true" ] && [ -n "$FILES" ] && [ "$FILES" != "0" ]; then
-    CTX="CodeGraph index ready ($FILES files)."
-  elif [ "$(printf '%s' "$ST" | json_field initialized)" = "true" ]; then
-    CTX="CodeGraph initialized but 0 files indexed (it resolves nothing yet) — run /devant:onboard or 'codegraph sync'."
+if dv_graph_enabled && dv_has_devant; then
+  GST="$(cd "$PROJ" 2>/dev/null && dv_devant graph status -j 2>/dev/null)"
+  GFILES="$(printf '%s' "$GST" | json_field files)"
+  GSYMS="$(printf '%s' "$GST" | json_field symbols)"
+  if [ -n "$GFILES" ] && [ "$GFILES" != "0" ]; then
+    CTX="devant graph ready ($GFILES files, ${GSYMS:-0} symbols).
+[devant] Code intelligence: consult the graph BEFORE grep-crawling — 'devant graph explore <q>' returns the verbatim source of matching symbols plus related intent; also: search, callers/callees/impact <symbol> (impact includes the intent rules governing it), affected <paths> (tests to run)."
   else
-    # Don't block the session on a full index here — onboarding owns `codegraph init -i`.
-    CTX="CodeGraph not indexed yet — run /devant:onboard to build the index and capture project intent."
+    CTX="devant graph empty — run /devant:onboard (or 'devant graph sync') to index this repo; structural queries fall back to Read/Grep until then."
   fi
-else
-  CTX="codegraph CLI not found (mandatory — install: npm i -g @colbymchenry/codegraph, or run /devant:onboard which installs it) — structural queries fall back to Read/Grep until then."
 fi
 
 SUMMARY=""
@@ -56,7 +53,7 @@ if [ -n "$SUMMARY" ]; then
 $SUMMARY"
 else
   CTX="$CTX
-[devant] No project intent captured yet — run /devant:onboard to scan this repo and capture its vision, direction, non-goals, and rules. Until then I answer from codegraph alone."
+[devant] No project intent captured yet — run /devant:onboard to scan this repo and capture its vision, direction, non-goals, and rules. Until then I answer from the code index alone."
 fi
 
 # Phase re-hydration (dec-018): after a compact (or resume) the conversation summary may

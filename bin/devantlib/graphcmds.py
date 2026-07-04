@@ -1,9 +1,9 @@
 """`devant graph …` — the fixed P0 query/sync surface over index.db (dec-016).
 
 The CLI contract (subcommands and their -j output keys) is frozen here; later phases add
-capability behind the same shape. At P0 sync records file rows only (the extractor lands in
-P1), so symbol-returning commands answer honestly from whatever exists and nudge toward
-/devant:onboard when the index is empty.
+capability behind the same shape. sync extracts symbols/refs/resources via devantlib.extract
+(P1: python/js/ts/go with call edges; generic declarations elsewhere); commands answer
+honestly from whatever exists and nudge toward /devant:onboard when the index is empty.
 """
 import hashlib
 import json
@@ -12,6 +12,7 @@ import subprocess
 import sys
 
 from .common import connect, load_meta, now, project_dir, rel_to_project
+from .extract import EXTRACTOR_VERSION, MODULE_QUAL, extract, module_name
 from .graphdb import (attach_intent, connect_index, fts_integrity, search as idx_search,
                       search_mode, SCHEMA_VERSION)
 
@@ -95,6 +96,91 @@ def file_hash(ab):
     return h
 
 
+def _store_extraction(conn, fid, rel, lang, text):
+    """Extract one file into the index. Symbols are UPSERTED on their natural key
+    (file, qualname, kind) and only vanished ones are deleted — ids stay stable so
+    inbound refs/annotations survive re-index (dec-016 gap 1). Returns None or an
+    error string (old symbols are kept on a syntax error mid-edit)."""
+    try:
+        data = extract(rel, text, lang)
+    except Exception as exc:  # one hostile/broken file must never abort the whole sync
+        return repr(exc)
+    mod = module_name(rel)
+    symbols = [{"name": mod, "qualname": MODULE_QUAL, "kind": "module",
+                "line_start": 1, "line_end": text.count("\n") + 1, "sig": "",
+                "visibility": "public"}] + data["symbols"]
+    keep = set()
+    for s in symbols:
+        conn.execute(
+            "INSERT INTO symbol(file,name,qualname,kind,line_start,line_end,sig,visibility) "
+            "VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(file,qualname,kind) DO UPDATE SET "
+            "name=excluded.name, line_start=excluded.line_start, line_end=excluded.line_end, "
+            "sig=excluded.sig, visibility=excluded.visibility",
+            (fid, s["name"], s["qualname"], s["kind"], s["line_start"], s["line_end"],
+             s["sig"], s["visibility"]))
+        keep.add((s["qualname"], s["kind"]))
+    for r in conn.execute("SELECT id, qualname, kind FROM symbol WHERE file=?", (fid,)).fetchall():
+        if (r["qualname"], r["kind"]) not in keep:
+            conn.execute("DELETE FROM ref WHERE src_symbol=?", (r["id"],))
+            # inbound edges must NOT keep pointing at a dead (reusable) rowid — unbind so
+            # the next _resolve_refs pass rebinds or leaves them honestly unresolved (H1)
+            conn.execute("UPDATE ref SET dst_symbol=NULL WHERE dst_symbol=?", (r["id"],))
+            conn.execute("DELETE FROM touches WHERE symbol=?", (r["id"],))
+            conn.execute("DELETE FROM symbol WHERE id=?", (r["id"],))
+    sid = {r["qualname"]: r["id"] for r in conn.execute(
+        "SELECT id, qualname FROM symbol WHERE file=? ORDER BY "
+        "CASE kind WHEN 'module' THEN 0 WHEN 'class' THEN 1 ELSE 2 END", (fid,)).fetchall()}
+    conn.execute("DELETE FROM ref WHERE src_symbol IN (SELECT id FROM symbol WHERE file=?)", (fid,))
+    for r in data["refs"]:
+        src = sid.get(r["src"]) or sid.get(MODULE_QUAL)
+        if src is None:
+            continue
+        conn.execute("INSERT INTO ref(src_symbol,dst_symbol,dst_name,kind,line,confidence) "
+                     "VALUES(?,?,?,?,?,?)",
+                     (src, sid.get(r["dst_name"]), r["dst_name"], r["kind"], r["line"],
+                      r["confidence"]))
+    conn.execute("DELETE FROM touches WHERE symbol IN (SELECT id FROM symbol WHERE file=?)", (fid,))
+    for res in data["resources"]:
+        src = sid.get(res["src"]) or sid.get(MODULE_QUAL)
+        if src is None:
+            continue
+        cur = conn.execute("INSERT OR IGNORE INTO resource(kind,name) VALUES(?,?)",
+                           (res["kind"], res["name"]))
+        rid = conn.execute("SELECT id FROM resource WHERE kind=? AND name=?",
+                           (res["kind"], res["name"])).fetchone()["id"]
+        conn.execute("INSERT OR IGNORE INTO touches(symbol,resource,access,line) VALUES(?,?,?,?)",
+                     (src, rid, res["access"], res["line"]))
+    return None
+
+
+def _resolve_refs(conn):
+    """Global pass: bind dst_name to a symbol id where the target is unambiguous —
+    exact qualname first, then unique bare name; cross-file binds carry a confidence
+    haircut (0.9x). Same-file binds were done at store time via the sid map."""
+    for r in conn.execute(
+            "SELECT rowid, dst_name, confidence FROM ref "
+            "WHERE dst_symbol IS NULL AND kind IN ('calls','inherits','implements')").fetchall():
+        hits = conn.execute("SELECT id FROM symbol WHERE qualname=? AND kind!='module'",
+                            (r["dst_name"],)).fetchall()
+        if not hits and "." in r["dst_name"]:
+            # module-qualified call (lib.core): head names a module symbol -> look up
+            # the remainder inside that module's file.
+            head, _, rest = r["dst_name"].partition(".")
+            hits = conn.execute(
+                "SELECT s.id FROM symbol s JOIN symbol m ON m.file = s.file "
+                "WHERE m.kind='module' AND m.name=? AND s.qualname=? AND s.kind!='module'",
+                (head, rest)).fetchall()
+        bare = False
+        if not hits and "." not in r["dst_name"]:
+            hits = conn.execute("SELECT id FROM symbol WHERE name=? AND kind!='module'",
+                                (r["dst_name"],)).fetchall()
+            bare = True
+        if len(hits) == 1:
+            conf = min(round(r["confidence"] * 0.9, 2), 0.6) if bare else round(r["confidence"] * 0.9, 2)
+            conn.execute("UPDATE ref SET dst_symbol=?, confidence=? WHERE rowid=?",
+                         (hits[0]["id"], conf, r["rowid"]))
+
+
 def cmd_graph_sync(args):
     conn = connect_index(args, create=True)
     proj = project_dir()
@@ -108,22 +194,41 @@ def cmd_graph_sync(args):
             continue
         present.add(rel)
         lang = LANG_BY_EXT.get(os.path.splitext(rel)[1].lower(), "other")
-        row = conn.execute("SELECT id, hash FROM file WHERE path=?", (rel,)).fetchone()
+        row = conn.execute("SELECT id, hash, extractor_version FROM file WHERE path=?",
+                           (rel,)).fetchone()
+        changed = row is None or row["hash"] != h or row["extractor_version"] != EXTRACTOR_VERSION
         if row is None:
-            conn.execute("INSERT INTO file(path,lang,hash,mtime) VALUES(?,?,?,?)",
-                         (rel, lang, h, mtime))
+            cur = conn.execute(
+                "INSERT INTO file(path,lang,hash,mtime,extractor_version) VALUES(?,?,?,?,?)",
+                (rel, lang, h, mtime, EXTRACTOR_VERSION))
+            fid = cur.lastrowid
             counts["indexed"] += 1
-        elif row["hash"] != h:
-            conn.execute("UPDATE file SET lang=?, hash=?, mtime=?, status='ok', error=NULL "
-                         "WHERE id=?", (lang, h, mtime, row["id"]))
+        elif changed:
+            fid = row["id"]
+            conn.execute("UPDATE file SET lang=?, hash=?, mtime=?, status='ok', error=NULL, "
+                         "extractor_version=? WHERE id=?",
+                         (lang, h, mtime, EXTRACTOR_VERSION, fid))
             counts["updated"] += 1
+        if changed:
+            try:
+                with open(os.path.join(proj, rel), encoding="utf-8", errors="replace") as fh:
+                    text = fh.read()
+            except OSError:
+                continue
+            err = _store_extraction(conn, fid, rel, lang, text)
+            if err:  # keep the previous symbols; record the parse failure honestly
+                conn.execute("UPDATE file SET status='error', error=? WHERE id=?", (err, fid))
     # Orphan GC: files gone from the tree take their symbols/refs/annotations with them
     # (the search index follows via triggers). dec-016 gap 15.
     for r in conn.execute("SELECT id, path FROM file").fetchall():
         if r["path"] in present:
             continue
-        conn.execute("DELETE FROM ref WHERE src_symbol IN (SELECT id FROM symbol WHERE file=?) "
-                     "OR dst_symbol IN (SELECT id FROM symbol WHERE file=?)", (r["id"], r["id"]))
+        conn.execute("DELETE FROM ref WHERE src_symbol IN (SELECT id FROM symbol WHERE file=?)",
+                     (r["id"],))
+        # refs FROM surviving files into the dead file lose their binding, not their row —
+        # deleting them would diverge incremental from full rescan (H2)
+        conn.execute("UPDATE ref SET dst_symbol=NULL "
+                     "WHERE dst_symbol IN (SELECT id FROM symbol WHERE file=?)", (r["id"],))
         conn.execute("DELETE FROM touches WHERE symbol IN (SELECT id FROM symbol WHERE file=?)",
                      (r["id"],))
         conn.execute("DELETE FROM symbol WHERE file=?", (r["id"],))
@@ -132,6 +237,7 @@ def cmd_graph_sync(args):
                      (str(r["id"]) + ":%",))  # symbol keys embed the file rowid, which can be reused
         conn.execute("DELETE FROM file WHERE id=?", (r["id"],))
         counts["removed"] += 1
+    _resolve_refs(conn)
     conn.commit()
     try:
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -344,8 +450,10 @@ def cmd_graph_callees(args):
 def cmd_graph_impact(args):
     conn = connect_index(args)
     symbols, seen = [], set()
+    seeds = []
     if conn is not None:
-        frontier = [r["id"] for r in _resolve_symbols(conn, args.symbol)]
+        seeds = [r["id"] for r in _resolve_symbols(conn, args.symbol)]
+        frontier = list(seeds)
         seen = set(frontier)
         while frontier:  # reverse closure over calls/inherits/implements
             rows = conn.execute(
@@ -361,6 +469,45 @@ def cmd_graph_impact(args):
                 frontier.append(r["sid"])
                 symbols.append({"qualname": r["qualname"], "symbol_kind": r["symbol_kind"],
                                 "path": r["path"], "via": r["kind"], "confidence": r["confidence"]})
+    # Resource co-reference (dec-016 P2): two symbols touching the same env var / URL /
+    # route / table are coupled even when no call edge connects them.
+    if conn is not None and seeds:
+        marks = ",".join("?" for _ in seeds)
+        for r in conn.execute(
+                "SELECT DISTINCT s.id AS sid, s.qualname, s.kind AS symbol_kind, f.path, "
+                "res.kind AS rkind, res.name AS rname FROM touches t1 "
+                "JOIN touches t2 ON t2.resource = t1.resource AND t2.symbol != t1.symbol "
+                "JOIN symbol s ON s.id = t2.symbol JOIN file f ON f.id = s.file "
+                "JOIN resource res ON res.id = t1.resource "
+                "WHERE t1.symbol IN (%s)" % marks, seeds).fetchall():
+            if r["sid"] in seen:
+                continue
+            seen.add(r["sid"])
+            symbols.append({"qualname": r["qualname"], "symbol_kind": r["symbol_kind"],
+                            "path": r["path"], "via": "resource:%s:%s" % (r["rkind"], r["rname"]),
+                            "confidence": 0.6})
+    # Concept co-reference (dec-016 P3, opt-in): annotations sharing a tag.
+    if getattr(args, "semantic", False) and conn is not None and seeds:
+        keys = ["%d:%s:%s" % (r["file"], r["qualname"], r["kind"]) for r in conn.execute(
+            "SELECT file, qualname, kind FROM symbol WHERE id IN (%s)"
+            % ",".join("?" for _ in seeds), seeds).fetchall()]
+        concepts = set()
+        for k in keys:
+            row = conn.execute("SELECT concepts FROM annotation WHERE target_key=?", (k,)).fetchone()
+            if row and row["concepts"]:
+                try:
+                    concepts.update(json.loads(row["concepts"]))
+                except ValueError:
+                    pass
+        for c in sorted(concepts):
+            for a in conn.execute(
+                    "SELECT target_key, target_type FROM annotation WHERE concepts LIKE ?",
+                    ('%"' + c + '"%',)).fetchall():
+                if a["target_key"] in keys:
+                    continue
+                symbols.append({"qualname": a["target_key"], "symbol_kind": a["target_type"],
+                                "path": a["target_key"] if a["target_type"] == "file" else "",
+                                "via": "concept:" + c, "confidence": 0.5})
     # The intent<->code crossing: constraints/decisions linked to this symbol surface in the
     # blast radius — that works TODAY through code_link, extractor or not.
     intent = []
@@ -416,17 +563,39 @@ def cmd_graph_affected(args):
     if conn is not None:
         known = {r["path"] for r in conn.execute("SELECT path FROM file").fetchall()}
     out, seen = [], set()
+
+    def add(path, via, source):
+        if path not in seen:
+            seen.add(path)
+            out.append({"path": path, "via": via, "source": source})
+
+    def dependents(rel):
+        """Files whose import edges name this file's module — the reverse import closure
+        (one level; provenance-labelled per dec-016 gap 10)."""
+        if conn is None:
+            return []
+        stem = module_name(rel)
+        rows = conn.execute(
+            "SELECT DISTINCT f.path FROM ref r JOIN symbol s ON s.id=r.src_symbol "
+            "JOIN file f ON f.id=s.file WHERE r.kind='imports' AND "
+            "(r.dst_name=? OR r.dst_name LIKE ? OR r.dst_name LIKE ?)",
+            (stem, "%." + stem, "%/" + stem)).fetchall()
+        return [x["path"] for x in rows if x["path"] != rel]
+
     for rel in rels:
-        if _is_test(rel) and rel not in seen:
-            seen.add(rel)
-            out.append({"path": rel, "via": "self", "source": rel})
+        if _is_test(rel):
+            add(rel, "self", rel)
             continue
-        # Import-closure lands with the extractor (P1); until then convention mapping only,
-        # provenance-labelled so callers know how the answer was derived (dec-016 gap 10).
         for cand in _test_candidates(rel):
-            if cand in known and cand not in seen:
-                seen.add(cand)
-                out.append({"path": cand, "via": "convention", "source": rel})
+            if cand in known:
+                add(cand, "convention", rel)
+        for dep in dependents(rel):
+            if _is_test(dep):
+                add(dep, "import", rel)
+            else:
+                for cand in _test_candidates(dep):
+                    if cand in known:
+                        add(cand, "import+convention", rel)
     if args.json:
         print(json.dumps(out))
         return 0
@@ -436,6 +605,30 @@ def cmd_graph_affected(args):
         return 0
     for t in out:
         print(t["path"])
+    return 0
+
+
+def cmd_graph_hot(args):
+    """Symbols ranked by inbound edges — where annotation effort pays first (dec-017)."""
+    conn = connect_index(args)
+    out = []
+    if conn is not None:
+        for r in conn.execute(
+                "SELECT s.file, s.qualname, s.kind, f.path, COUNT(r.rowid) c FROM symbol s "
+                "JOIN file f ON f.id = s.file LEFT JOIN ref r ON r.dst_symbol = s.id "
+                "WHERE s.kind != 'module' GROUP BY s.id ORDER BY c DESC, s.qualname "
+                "LIMIT ?", (args.limit,)).fetchall():
+            out.append({"key": "%d:%s:%s" % (r["file"], r["qualname"], r["kind"]),
+                        "qualname": r["qualname"], "kind": r["kind"], "path": r["path"],
+                        "in_degree": r["c"]})
+    if args.json:
+        print(json.dumps(out))
+        return 0
+    if not out:
+        print(NUDGE)
+        return 0
+    for d in out:
+        print("%3d  %s (%s) %s  [%s]" % (d["in_degree"], d["qualname"], d["kind"], d["path"], d["key"]))
     return 0
 
 

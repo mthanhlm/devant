@@ -1,14 +1,52 @@
 {
   "symbols": [
-    {"qualname": "Store", "kind": "class"},
-    {"qualname": "Store.constructor", "kind": "function"},
-    {"qualname": "Store.load", "kind": "function"},
-    {"qualname": "readConfig", "kind": "function"}
+    {
+      "qualname": "Store",
+      "kind": "class"
+    },
+    {
+      "qualname": "Store.constructor",
+      "kind": "function"
+    },
+    {
+      "qualname": "Store.load",
+      "kind": "function"
+    },
+    {
+      "qualname": "readConfig",
+      "kind": "function"
+    }
   ],
   "refs": [
-    {"src": "sample", "dst_name": "fs/promises", "kind": "imports"},
-    {"src": "readConfig", "dst": "Store", "kind": "calls"},
-    {"src": "readConfig", "dst": "Store.load", "kind": "calls"},
-    {"src": "Store.load", "dst_name": "readFile", "kind": "calls"}
+    {
+      "src": "sample",
+      "dst_name": "fs/promises",
+      "kind": "imports"
+    },
+    {
+      "src": "readConfig",
+      "dst": "Store",
+      "kind": "calls"
+    },
+    {
+      "src": "readConfig",
+      "dst": "Store.load",
+      "kind": "calls"
+    },
+    {
+      "src": "Store.load",
+      "dst_name": "readFile",
+      "kind": "calls"
+    },
+    {
+      "src": "Store.load",
+      "dst_name": "JSON.parse",
+      "kind": "calls"
+    },
+    {
+      "src": "Store.load",
+      "dst_name": "raw.replace",
+      "kind": "calls"
+    }
   ]
 }

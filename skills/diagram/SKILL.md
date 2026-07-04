@@ -18,7 +18,7 @@ The intent CLI is `devant`.
 
 ## Do this
 1. **Pick the kind** from the request (architecture vs. activity flow). If ambiguous, ask one line.
-2. **Ground the content in the real code — never invent.** Use `codegraph_explore`/`codegraph_search`
+2. **Ground the content in the real code — never invent.** Use `devant graph explore`/`devant graph search`
    to get the actual containers, modules, data stores, and the real call/flow path the diagram
    depicts. A box or step that doesn't map to something in the graph doesn't belong on the diagram.
 3. **Author the styled mxGraph XML — the always-available baseline.** Build it by following

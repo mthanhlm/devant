@@ -97,6 +97,7 @@ def ensure_index_schema(conn):
       kind TEXT NOT NULL, line_start INTEGER, line_end INTEGER, sig TEXT, visibility TEXT,
       UNIQUE(file, qualname, kind));
     CREATE INDEX IF NOT EXISTS symbol_name ON symbol(name);
+    CREATE INDEX IF NOT EXISTS symbol_qualname ON symbol(qualname);
     CREATE TABLE IF NOT EXISTS ref(
       src_symbol INTEGER NOT NULL, dst_symbol INTEGER, dst_name TEXT,
       kind TEXT NOT NULL CHECK(kind IN ('contains','imports','calls','inherits','implements','references')),

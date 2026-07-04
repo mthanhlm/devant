@@ -2,8 +2,8 @@
 name: onboard
 disable-model-invocation: true
 effort: high
-allowed-tools: Bash(devant *), Bash(codegraph *)
-description: One-time project onboarding — run codegraph init, scan the codebase to understand it, interview only the gaps a scan can't infer, and seed the local intent graph (vision, direction, non-goals, layering rules, conventions). Re-runnable to refresh. Target of /devant:onboard.
+allowed-tools: Bash(devant *)
+description: One-time project onboarding — build the devant graph index, scan the codebase to understand it, interview only the gaps a scan can't infer, and seed the local intent graph (vision, direction, non-goals, layering rules, conventions). Re-runnable to refresh. Target of /devant:onboard.
 ---
 
 # devant: onboard
@@ -13,15 +13,12 @@ explosion. The intent CLI is `devant` (on the Bash PATH while this plugin is ena
 goes only into the local intent graph — never commit anything.
 
 ## 1. Toolchain + init + scan (write only the index)
-- **Install the mandatory toolchain first** (dec-011). If `codegraph` is not on PATH:
-  `npm i -g @colbymchenry/codegraph` (user-space, no sudo; MIT). Also ensure the layout engine
-  in the plugin's data dir (survives plugin updates, no global npm pollution):
+- **Layout engine (optional, diagrams only):** ensure elkjs in the plugin's data dir
+  (survives plugin updates, no global npm pollution):
   `node -e "require('elkjs')"` (with `NODE_PATH="${CLAUDE_PLUGIN_DATA}/node_modules"`) — if it
-  fails: `mkdir -p "${CLAUDE_PLUGIN_DATA}" && cd "${CLAUDE_PLUGIN_DATA}" && npm i elkjs`.
-  Verify with `codegraph --version`. If `npm` itself is missing, tell the user to install Node.js
-  (e.g. via nvm: https://github.com/nvm-sh/nvm) and continue the onboarding degraded — don't block
-  the interview on it.
-- `codegraph init -i` (builds/refreshes the local index for this repo).
+  fails: `mkdir -p "${CLAUDE_PLUGIN_DATA}" && cd "${CLAUDE_PLUGIN_DATA}" && npm i elkjs`. If npm
+  is missing, continue degraded — diagrams still ship hand-laid-out.
+- `devant graph sync` (builds/refreshes the self-owned index — no external tool, dec-016).
 - **Native guard backstop (dec-019, opt-in):** offer — with explicit consent, never silently — to
   seed the project's `.claude/settings.json` with
   `permissions.deny: ["Bash(git commit*)", "Bash(git push*)", "Bash(git add*)", "Edit(.devant/**)"]`.
@@ -34,8 +31,8 @@ goes only into the local intent graph — never commit anything.
   shared settings.json). This lets long sessions auto-compact early; devant's PreCompact gate
   then defers each compact to the next phase boundary. Declining costs nothing — the gate and
   monitor still work at the harness's default threshold.
-- `codegraph_files` for layout; read manifests (package.json / pyproject.toml / go.mod / …) for
-  the stack; `codegraph_explore` on entrypoints (main/index/app/server/cmd) to see how work
+- `devant graph search` / file listing for layout; read manifests (package.json / pyproject.toml / go.mod / …) for
+  the stack; `devant graph explore` on entrypoints (main/index/app/server/cmd) to see how work
   flows. Derive candidate **modules** (id/path/role) and candidate **layer boundaries**.
 
 ## 2. Auto-draft + ask for docs
@@ -64,3 +61,15 @@ confirmation write it with the CLI:
 - `devant add-node --kind decision --title "…" --body "<why>" [--rejected "…" --why-rejected "…"]`
 - Link rules/modules to code: `devant link <id> <qualifiedName> --relation constrains|governs|implemented_by`
 Constraint and decision nodes REQUIRE a rationale (`--body`). One confirmation, one write pass.
+
+## Annotate the graph (semantic layer, dec-016 P3 / dec-017)
+After the index is built and intent is seeded, add the semantic layer — taxonomy-first hybrid:
+1. **Taxonomy once (you, the session model):** from `devant graph status` + the module layout,
+   fix ~30–60 concept tags (auth, billing, retry, migration, …). Keep the list in this chat.
+2. **Hot symbols (you):** `devant graph hot --limit <5% of symbols>` — annotate each with
+   `devant graph annotate --key <key> --type symbol --summary "<1–2 sentences>" --concepts a,b`.
+3. **The tail (Haiku fan-out, dec-017):** spawn subagents on Haiku with the FIXED taxonomy in
+   their prompt — they read files and emit `devant graph annotate` calls; they apply the
+   vocabulary, never invent tags. Estimate token cost first (files × ~10 tok/line) and let the
+   user skip or scope this stage; re-runs are incremental (`--source-hash` skips unchanged).
+Semantic queries then work: `devant graph search <concept>`, `devant graph impact <sym> --semantic`.

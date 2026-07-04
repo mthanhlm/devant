@@ -18,12 +18,12 @@ CLI is `devant`.
 Only high-risk changes (see this skill's description). If the change is low/medium risk, say so and
 stop — the `code` skill's own §6 self-check covers those; an extra review pass is waste.
 
-## What to judge (ground each call in the diff + codegraph, not assumption)
+## What to judge (ground each call in the diff + the devant graph, not assumption)
 - **Correctness:** does it meet the real requirement? Each acceptance criterion mapped to code AND a
   test that proves it? Edge/failure cases and regressions considered? Pre-existing vs new failures
   distinguished?
 - **Repo consistency:** follows the existing architecture, naming, error-handling, and state patterns
-  (`codegraph_explore` the surrounding code)? No public API/boundary changed without need?
+  (`devant graph explore` the surrounding code)? No public API/boundary changed without need?
 - **Simplicity & sense:** complexity matches the requirement; no one-use abstraction, needless
   dependency (`devant constraints --path` / `why` for recorded rules), or duplication of an existing
   helper; sits in the right layer; dependency direction is sound.
@@ -32,5 +32,5 @@ stop — the `code` skill's own §6 self-check covers those; an extra review pas
 
 ## Output
 A verdict — **safe to merge** / **changes needed** — then the specific reasons, each tied to a
-file:line and (where relevant) the codegraph or intent evidence. Be concrete; no generic praise. You
+file:line and (where relevant) the graph or intent evidence. Be concrete; no generic praise. You
 change nothing — the `code` skill acts on your findings.

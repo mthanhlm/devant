@@ -3,7 +3,7 @@ name: router
 user-invocable: false
 effort: low
 allowed-tools: Bash(devant *)
-description: Entry point for any request on this codebase via /devant:run — answer a question, change code, write docs, or recall the project's direction/decisions. Grounds in codegraph and the intent graph, pushes back on debt, and dispatches to one specialist. Also the target of the /devant:run command.
+description: Entry point for any request on this codebase via /devant:run — answer a question, change code, write docs, or recall the project's direction/decisions. Grounds in the devant graph (code + intent), pushes back on debt, and dispatches to one specialist. Also the target of the /devant:run command.
 ---
 
 # devant: router
@@ -13,8 +13,8 @@ You are the single entry point. Produce ONE coherent result. The intent CLI is `
 ## 1. Ground (cheap, always)
 - SessionStart already injected the intent brief. For the touched area, run
   `devant constraints --area "<request>"` and, if the request names code, one
-  `codegraph_explore`/`codegraph_search`. Don't guess; don't grep-crawl.
-- No intent graph yet? Answer from codegraph alone and tell the user to run
+  `devant graph explore`/`devant graph search`. Don't guess; don't grep-crawl.
+- No intent graph yet? Answer from the devant graph alone and tell the user to run
   `/devant:onboard` to capture vision/direction/rules. Do not start an interview mid-request.
 
 ## 1.5 Sharpen the ask (scoped — keep the fast path fast)
@@ -63,7 +63,7 @@ the failure devant exists to prevent. When you dispatch, pass the sharpened ask 
 the relevant constraints/area so the specialist starts grounded.
 
 ## 4. Size by blast radius, never line count (keep simple work fast)
-Use `codegraph_impact`/`codegraph_callers`. **Trivial** (no downstream callers / no affected
+Use `devant graph impact`/`devant graph callers`. **Trivial** (no downstream callers / no affected
 tests — typo, local edit): just do it in one pass, no fork, no ceremony. **Substantial** (real
 fan-out, crosses a module, or touches a block-constrained area): dispatch to `devant:code`.
 Never decompose a small change for process; there is no fixed pipeline.

@@ -74,12 +74,6 @@ class PureFns(unittest.TestCase):
         self.assertIsNone(dv.secret_like("risk-management-strategy-engine-v2"))
         self.assertEqual(dv.secret_like("key = 'sk-abcdefabcdefabcdefabcd'")[1], "deny")  # real token still caught
 
-    def test_cg_stale_detects_drift(self):
-        self.assertFalse(dv.cg_stale(None))
-        self.assertFalse(dv.cg_stale({"pendingChanges": {"added": 0, "modified": 0, "removed": 0}, "worktreeMismatch": None}))
-        self.assertTrue(dv.cg_stale({"pendingChanges": {"added": 0, "modified": 2, "removed": 0}}))
-        self.assertTrue(dv.cg_stale({"worktreeMismatch": True}))
-
     def test_evaluate_bash_denies_git_write_and_destructive(self):
         for c in ("git commit -m x", "git push origin main", "git add .",
                   "git -c commit.gpgsign=false commit -m x",   # intervening -c value-opt
@@ -608,6 +602,234 @@ class GraphP0(unittest.TestCase):
         ) % BIN
         r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=self.env)
         self.assertEqual(r.stdout.strip(), "CLEAN", r.stdout + r.stderr)
+
+
+class BenchmarkGate(unittest.TestCase):
+    """dec-016 cutover gate: the self-built extractor must hit the recall/precision
+    floors in tests/fixtures/bench/thresholds.json on every language fixture before
+    codegraph may be removed. Golden = expected.json next to each sample."""
+    BENCH = os.path.join(ROOT, "tests", "fixtures", "bench")
+
+    def _index(self, lang):
+        src = os.path.join(self.BENCH, lang)
+        sample = next(f for f in sorted(os.listdir(src)) if not f.endswith(".json"))
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        shutil.copy(os.path.join(src, sample), os.path.join(tmp.name, sample))
+        idx = os.path.join(tmp.name, "index.db")
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=tmp.name, DEVANT_CODEGRAPH="off")
+        r = subprocess.run([sys.executable, BIN, "--index-db", idx, "graph", "sync"],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        import sqlite3
+        conn = sqlite3.connect(idx)
+        conn.row_factory = sqlite3.Row
+        qual = {}
+        for s2 in conn.execute("SELECT id, qualname, kind, name FROM symbol").fetchall():
+            qual[s2["id"]] = s2["name"] if s2["kind"] == "module" else s2["qualname"]
+        syms = {(s2["qualname"], s2["kind"]) for s2 in conn.execute(
+            "SELECT qualname, kind FROM symbol WHERE kind!='module'").fetchall()}
+        refs = [{"src": qual[r2["src_symbol"]],
+                 "dst_qual": qual.get(r2["dst_symbol"]), "dst_name": r2["dst_name"],
+                 "kind": r2["kind"]}
+                for r2 in conn.execute("SELECT * FROM ref").fetchall()]
+        return syms, refs
+
+    def _gate(self, lang):
+        exp = json.load(open(os.path.join(self.BENCH, lang, "expected.json")))
+        th = json.load(open(os.path.join(self.BENCH, "thresholds.json")))
+        syms, refs = self._index(lang)
+        want_syms = {(s["qualname"], s["kind"]) for s in exp["symbols"]}
+        hit = want_syms & syms
+        s_recall = len(hit) / len(want_syms)
+        s_prec = len(hit) / len(syms) if syms else 0
+        self.assertGreaterEqual(s_recall, th["symbols"]["recall"],
+                                "%s symbol recall: missing %s" % (lang, want_syms - syms))
+        self.assertGreaterEqual(s_prec, th["symbols"]["precision"],
+                                "%s symbol precision: extra %s" % (lang, syms - want_syms))
+
+        def matches(e, g):
+            if e["src"] != g["src"] or e["kind"] != g["kind"]:
+                return False
+            want = e.get("dst") or e.get("dst_name")
+            return want in (g["dst_qual"], g["dst_name"])
+
+        want_refs = exp["refs"]
+        matched = [e for e in want_refs if any(matches(e, g) for g in refs)]
+        r_recall = len(matched) / len(want_refs)
+        # precision over refs the extractor CLAIMS are meaningful: resolved targets,
+        # qualified externals, imports and inherits — bare unresolved names are excluded
+        # (they're honest "references by text", not asserted edges).
+        claimed = [g for g in refs if g["kind"] != "contains" and (
+            g["dst_qual"] or "." in (g["dst_name"] or "") or "/" in (g["dst_name"] or "")
+            or g["kind"] in ("imports", "inherits"))]
+        good = [g for g in claimed if any(matches(e, g) for e in want_refs)]
+        r_prec = len(good) / len(claimed) if claimed else 1.0
+        self.assertGreaterEqual(r_recall, th["calls"]["recall"],
+                                "%s ref recall: missing %s" % (
+                                    lang, [e for e in want_refs if e not in matched]))
+        self.assertGreaterEqual(r_prec, th["calls"]["precision"],
+                                "%s ref precision: extra %s" % (
+                                    lang, [g for g in claimed if g not in good]))
+
+    def test_python_gate(self):
+        self._gate("python")
+
+    def test_javascript_gate(self):
+        self._gate("javascript")
+
+    def test_go_gate(self):
+        self._gate("go")
+
+    def test_decay_contract_incremental_equals_full(self):
+        # dec-016 gap 1 + review H1/H2: N incremental syncs must equal one fresh full
+        # scan INCLUDING resolved bindings — dangling/mis-bound dst_symbol after an
+        # in-place rename or a callee-file deletion must show up here.
+        with tempfile.TemporaryDirectory() as proj:
+            env = dict(os.environ, CLAUDE_PROJECT_DIR=proj, DEVANT_CODEGRAPH="off")
+
+            def w(name, body):
+                with open(os.path.join(proj, name), "w") as fh:
+                    fh.write(body)
+
+            def sync(idx):
+                subprocess.run([sys.executable, BIN, "--index-db", idx, "graph", "sync"],
+                               capture_output=True, env=env)
+
+            def dump(idx):
+                import sqlite3
+                conn = sqlite3.connect(idx)
+                conn.row_factory = sqlite3.Row
+                qual = {s["id"]: (s["name"] if s["kind"] == "module" else s["qualname"])
+                        for s in conn.execute("SELECT id,qualname,kind,name FROM symbol")}
+                syms = {(r["qualname"], r["kind"]) for r in conn.execute(
+                    "SELECT qualname,kind FROM symbol").fetchall()}
+                refs = {(qual[r["src_symbol"]], r["dst_name"], r["kind"],
+                         qual.get(r["dst_symbol"]))                    # resolved target or None
+                        for r in conn.execute("SELECT * FROM ref").fetchall()}
+                return syms, refs
+
+            inc = os.path.join(proj, "inc.db")
+            w("b.py", "def f():\n    return 1\n")
+            w("a.py", "import b\n\ndef g():\n    return b.f()\n")
+            sync(inc)
+            w("b.py", "def f2():\n    return 2\n")                    # in-place RENAME (H1)
+            sync(inc)
+            w("c.py", "import b\n\ndef k():\n    return b.f2()\n")   # new caller
+            sync(inc)
+            os.remove(os.path.join(proj, "b.py"))                       # CALLEE deleted (H2)
+            sync(inc)
+            full = os.path.join(proj, "full.db")
+            sync(full)
+            self.assertEqual(dump(inc), dump(full))
+
+    def test_hostile_file_degrades_to_per_file_error(self):
+        # review H3: one broken notebook must not abort the sync or block the index.
+        with tempfile.TemporaryDirectory() as proj:
+            env = dict(os.environ, CLAUDE_PROJECT_DIR=proj, DEVANT_CODEGRAPH="off")
+            with open(os.path.join(proj, "ok.py"), "w") as fh:
+                fh.write("def fine():\n    return 1\n")
+            with open(os.path.join(proj, "evil.ipynb"), "w") as fh:
+                fh.write(json.dumps({"cells": [{"cell_type": "code", "source": 123}]}))
+            idx = os.path.join(proj, "index.db")
+            r = subprocess.run([sys.executable, BIN, "--index-db", idx, "graph", "sync", "-j"],
+                               capture_output=True, text=True, env=env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            import sqlite3
+            conn = sqlite3.connect(idx)
+            conn.row_factory = sqlite3.Row
+            rows = {x["path"]: x["status"] for x in conn.execute("SELECT path,status FROM file")}
+            self.assertEqual(rows.get("ok.py"), "ok")                   # the rest indexed fine
+            self.assertIn(rows.get("evil.ipynb"), ("ok", "error"))      # never aborts
+
+    def test_python_from_import_is_not_a_sql_table(self):
+        # review M3: `from collections import x` must not fabricate resource coupling.
+        with tempfile.TemporaryDirectory() as proj:
+            env = dict(os.environ, CLAUDE_PROJECT_DIR=proj, DEVANT_CODEGRAPH="off")
+            with open(os.path.join(proj, "m.py"), "w") as fh:
+                fh.write("from collections import OrderedDict\n\ndef f():\n    return OrderedDict()\n")
+            idx = os.path.join(proj, "index.db")
+            subprocess.run([sys.executable, BIN, "--index-db", idx, "graph", "sync"],
+                           capture_output=True, env=env)
+            import sqlite3
+            rows = sqlite3.connect(idx).execute(
+                "SELECT name FROM resource WHERE kind='sql_table'").fetchall()
+            self.assertEqual(rows, [])
+
+
+class GraphSemantics(unittest.TestCase):
+    """P2/P3 (dec-016): resource co-reference impact, container formats, hot ranking,
+    concept traversal, and lint link-suggestions — the racing-wheel pair."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.proj = self.tmp.name
+        self.db = os.path.join(self.proj, ".devant", "intent.db")
+        self.idx = os.path.join(self.proj, ".devant", "index.db")
+        self.env = dict(os.environ, CLAUDE_PROJECT_DIR=self.proj)
+        self.env.pop("DEVANT_CODEGRAPH", None)   # graph lifecycle ON for these tests
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def dv(self, *args):
+        return subprocess.run([sys.executable, BIN, "--db", self.db, "--index-db", self.idx, *args],
+                              capture_output=True, text=True, env=self.env)
+
+    def put(self, rel, content):
+        p = os.path.join(self.proj, rel)
+        d = os.path.dirname(p)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        with open(p, "w") as fh:
+            fh.write(content)
+
+    def test_impact_crosses_shared_resources(self):
+        self.put("a.py", 'import os\n\ndef f():\n    return os.environ["API_KEY"]\n')
+        self.put("b.py", 'import os\n\ndef g():\n    return os.environ["API_KEY"]\n')
+        self.dv("graph", "sync")
+        r = json.loads(self.dv("graph", "impact", "f", "-j").stdout)
+        hit = [s for s in r["symbols"] if s["qualname"] == "g"]
+        self.assertTrue(hit and hit[0]["via"].startswith("resource:env:API_KEY"), r)
+
+    def test_vue_script_block_is_extracted(self):
+        self.put("w.vue", "<template><div/></template>\n<script>\nexport function hi() { return 1 }\n</script>\n")
+        self.dv("graph", "sync")
+        hits = json.loads(self.dv("graph", "search", "hi", "-j").stdout)
+        self.assertTrue(any(h.get("kind") == "symbol" and h["qualname"] == "hi" for h in hits), hits)
+
+    def test_hot_ranks_by_in_degree(self):
+        self.put("lib.py", "def core():\n    return 1\n")
+        self.put("u1.py", "import lib\n\ndef a():\n    return lib.core()\n")
+        self.put("u2.py", "import lib\n\ndef b():\n    return lib.core()\n")
+        self.dv("graph", "sync")
+        top = json.loads(self.dv("graph", "hot", "-j").stdout)[0]
+        self.assertEqual((top["qualname"], top["in_degree"]), ("core", 2))
+
+    def test_semantic_impact_via_shared_concept(self):
+        self.put("a.py", "def f():\n    return 1\n")
+        self.put("b.py", "def g():\n    return 2\n")
+        self.dv("graph", "sync")
+        keys = {d["qualname"]: d["key"] for d in json.loads(self.dv("graph", "hot", "-j").stdout)}
+        self.dv("graph", "annotate", "--key", keys["f"], "--type", "symbol",
+                "--summary", "auth entry", "--concepts", "auth")
+        self.dv("graph", "annotate", "--key", keys["g"], "--type", "symbol",
+                "--summary", "auth helper", "--concepts", "auth")
+        r = json.loads(self.dv("graph", "impact", "f", "--semantic", "-j").stdout)
+        self.assertTrue(any(s["via"] == "concept:auth" for s in r["symbols"]), r)
+        r0 = json.loads(self.dv("graph", "impact", "f", "-j").stdout)
+        self.assertFalse(any(s["via"].startswith("concept:") for s in r0["symbols"]))  # opt-in only
+
+    def test_lint_suggests_missing_code_links(self):
+        self.put("mod.py", "def evaluate_thing():\n    return 1\n")
+        self.dv("graph", "sync")
+        self.dv("decide", "--id", "dec-x", "--title", "Harden evaluate_thing",
+                "--body", "evaluate_thing must stay pure")
+        rep = json.loads(self.dv("lint", "-j").stdout)
+        self.assertIn({"node": "dec-x", "symbol": "evaluate_thing"}, rep["link_suggestions"])
+        self.dv("link", "dec-x", "evaluate_thing", "--relation", "governs")   # resolves via graph
+        rep = json.loads(self.dv("lint", "-j").stdout)
+        self.assertNotIn({"node": "dec-x", "symbol": "evaluate_thing"}, rep["link_suggestions"])
 
 
 class PhaseAndCompactGate(unittest.TestCase):

@@ -149,8 +149,16 @@ def build_parser():
                        ("impact", "cmd_graph_impact")]:
         gc = gsub.add_parser(name)
         gc.add_argument("symbol")
+        if name == "impact":
+            gc.add_argument("--semantic", action="store_true",
+                            help="also traverse shared annotation concepts")
         gc.add_argument("-j", "--json", action="store_true")
         gc.set_defaults(_mod="graphcmds", _func=func)
+
+    gh = gsub.add_parser("hot", help="symbols ranked by inbound edges (annotate these first)")
+    gh.add_argument("--limit", type=int, default=20)
+    gh.add_argument("-j", "--json", action="store_true")
+    gh.set_defaults(_mod="graphcmds", _func="cmd_graph_hot")
 
     ga = gsub.add_parser("affected", help="test files affected by the given source paths")
     ga.add_argument("paths", nargs="*")

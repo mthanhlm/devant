@@ -2,6 +2,40 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.0] - 2026-07-04
+
+### Added — the racing-wheel pair is complete (dec-016 P1–P3)
+- **Self-built extractor** (`bin/devantlib/extract.py`, stdlib only): Python via `ast`
+  (full call edges with local `var = Class()` / `super()` inference), JS/TS + Go via a
+  comment/string-aware tokenizer with brace-span scoping (declarations, imports,
+  confidence-scored calls), declaration-tier for java/kotlin/csharp/ruby/rust/php/c/cpp/
+  swift/shell (imports + symbols, never fabricated call edges), Vue/Svelte `<script>`
+  delegation, `.ipynb` code-cell extraction, and resource scanning (env vars, URLs,
+  routes, SQL tables).
+- **`devant graph sync` now extracts**: symbols upsert on their natural key (ids stable
+  across re-index), refs resolve same-file → module-qualified (`lib.core`) → unique name
+  with confidence haircuts, syntax errors keep the previous symbols. Proven by the
+  benchmark gate (recall/precision floors per language) and a decay contract test
+  (N incremental syncs ≡ one full rescan).
+- **Impact across three layers**: reverse call/inherit closure ∪ resource co-reference
+  (two functions touching the same env var/table are coupled without any call edge) ∪
+  `--semantic` shared annotation concepts. `devant graph hot` ranks symbols by in-degree
+  (where dec-017 annotation effort pays first). `affected` adds one-level reverse-import
+  closure with provenance labels.
+- **`devant lint` suggests missing code links** when a decision/constraint names an
+  indexed symbol it isn't linked to.
+- Onboard gains the semantic-annotation pipeline stage (taxonomy → hot symbols →
+  Haiku fan-out, dec-017).
+
+### Changed — codegraph cutover (benchmark-gated, dec-016)
+- The external `@colbymchenry/codegraph` npm CLI is fully replaced: `link`/`dangling`/
+  `doctor` resolve against the internal index; hooks run `devant graph sync`/`affected`;
+  session-start injects a graph-CLI cheatsheet; skills ground in `devant graph
+  explore/search/impact/callers`; onboard no longer installs codegraph (Node.js is now
+  optional, diagrams only). `DEVANT_CODEGRAPH=off` remains the lifecycle switch.
+  Uninstall when ready: `npm uninstall -g @colbymchenry/codegraph` and remove
+  `.codegraph/` dirs + your codegraph MCP entry.
+
 ## [0.9.0] - 2026-07-04
 
 ### Added

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop / SubagentStop: keep the codegraph index fresh (debounced sync) and feed the
+# Stop / SubagentStop: keep the devant graph index fresh (debounced sync) and feed the
 # reconciliation note — impacted tests to confirm green, unfinished markers in touched
 # files (NM3), dangling intent->code links — back to Claude IN THE SAME TURN via the
 # Stop hook's native additionalContext (it used to be a .lastturn file replayed on the
@@ -21,18 +21,18 @@ TOUCHED="$STATE/${SID:-_}.touched"
 # A subagent finishing mid-turn shares the session id; keep the index fresh for it but
 # leave .touched for the real Stop — consuming it here would drop later main-turn edits.
 if [ "$(printf '%s' "$INPUT" | json_field hook_event_name)" = "SubagentStop" ]; then
-  [ -s "$TOUCHED" ] && dv_has_codegraph && (cd "$PROJ" 2>/dev/null && codegraph sync -q >/dev/null 2>&1)
+  [ -s "$TOUCHED" ] && dv_graph_enabled && dv_has_devant && (cd "$PROJ" 2>/dev/null && dv_devant graph sync >/dev/null 2>&1)
   exit 0
 fi
 
 # Only do real work on a turn that actually edited files (no-edit turns stay cheap).
 if [ -s "$TOUCHED" ]; then
-  dv_has_codegraph && (cd "$PROJ" 2>/dev/null && codegraph sync -q >/dev/null 2>&1)
+  dv_graph_enabled && dv_has_devant && (cd "$PROJ" 2>/dev/null && dv_devant graph sync >/dev/null 2>&1)
 
   NOTE="Before you claim done: deliver real, verified work — actually run it and show real output, not a report of what you would do."
 
-  if dv_has_codegraph; then
-    AFF="$(sed "s#^$PROJ/##" "$TOUCHED" | sort -u | (cd "$PROJ" 2>/dev/null && codegraph affected --stdin -q 2>/dev/null) | head -20)"
+  if dv_graph_enabled && dv_has_devant; then
+    AFF="$(sed "s#^$PROJ/##" "$TOUCHED" | sort -u | (cd "$PROJ" 2>/dev/null && dv_devant graph affected --stdin 2>/dev/null) | head -20)"
     [ -n "$AFF" ] && NOTE="${NOTE}
 Impacted tests to run and confirm green (compiling is not 'done'):
 $AFF"

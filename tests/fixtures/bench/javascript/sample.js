@@ -8,7 +8,8 @@ export class Store {
 
   async load() {
     const raw = await readFile(this.path, "utf8");
-    return JSON.parse(raw);
+    const clean = raw.replace(/["']/g, "");
+    return JSON.parse(clean);
   }
 }
 

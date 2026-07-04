@@ -1,5 +1,6 @@
-"""Intent-graph commands (add-node/decide/link/constraints/why/…) and the codegraph
-subprocess helpers. Imported lazily by the CLI — never on the guard hot path."""
+"""Intent-graph commands (add-node/decide/link/constraints/why/…) plus the bridge to
+the devant code index (graph_conn/graph_resolve). Imported lazily by the CLI — never on
+the guard hot path."""
 import json
 import os
 import re
@@ -13,55 +14,33 @@ from .common import (EDGE_KINDS, KINDS, SPECIALISTS, _active, _content_tokens, c
 from .guard import evaluate_guard
 
 
-def cg_available():
-    """True if the codegraph CLI is usable (and not disabled)."""
-    return os.environ.get("DEVANT_CODEGRAPH", "on") != "off" and shutil.which("codegraph") is not None
-
-
-def cg_resolve(symbol):
-    """Resolve a symbol to {filePath, id, qualifiedName} via codegraph, or None."""
-    if not cg_available():
+def graph_conn(args):
+    """The devant code index (index.db), or None when it hasn't been built or the
+    structural lifecycle is disabled (DEVANT_CODEGRAPH=off — legacy env name kept so
+    existing setups/tests keep working)."""
+    if os.environ.get("DEVANT_CODEGRAPH", "on") == "off":
         return None
-    try:
-        out = subprocess.run(
-            ["codegraph", "query", symbol, "-j", "-l", "1"],
-            capture_output=True, text=True, timeout=20,
-        )
-        data = json.loads(out.stdout)
-    except Exception:
-        return None
-    items = data if isinstance(data, list) else (data.get("results") or data.get("nodes") or [])
-    if not items:
-        return None
-    it = items[0]
-    node = it.get("node") if isinstance(it.get("node"), dict) else it  # `codegraph query -j` nests fields under .node
-    return {
-        "filePath": node.get("filePath") or node.get("file") or node.get("path"),
-        "id": node.get("id"),
-        "qualifiedName": node.get("qualifiedName") or node.get("name"),
-    }
+    from .graphdb import connect_index
+    return connect_index(args)
 
 
-def cg_status():
-    """Parsed `codegraph status -j`, or None when codegraph is unavailable/unreadable."""
-    if not cg_available():
+def graph_resolve(args, symbol):
+    """Resolve a symbol name to {filePath, qualifiedName} against the devant graph
+    (replaces the codegraph subprocess after the dec-016 cutover). None if absent
+    or ambiguous."""
+    conn = graph_conn(args)
+    if conn is None:
         return None
-    try:
-        out = subprocess.run(["codegraph", "status", "-j"], capture_output=True, text=True, timeout=20)
-        return json.loads(out.stdout)
-    except Exception:
+    rows = conn.execute(
+        "SELECT s.qualname, f.path FROM symbol s JOIN file f ON f.id=s.file "
+        "WHERE s.qualname=? AND s.kind!='module' LIMIT 2", (symbol,)).fetchall()
+    if not rows:
+        rows = conn.execute(
+            "SELECT s.qualname, f.path FROM symbol s JOIN file f ON f.id=s.file "
+            "WHERE s.name=? AND s.kind!='module' LIMIT 2", (symbol.rsplit(".", 1)[-1],)).fetchall()
+    if len(rows) != 1:
         return None
-
-
-def cg_stale(status):
-    """True if the index lags the working tree (uncommitted drift). Lets readers warn before
-    trusting a stale index — the watcher is off on some filesystems (e.g. WSL2 /mnt)."""
-    if not status:
-        return False
-    if status.get("worktreeMismatch"):
-        return True
-    pc = status.get("pendingChanges") or {}
-    return any(pc.get(k) for k in ("added", "modified", "removed"))
+    return {"filePath": rows[0]["path"], "id": None, "qualifiedName": rows[0]["qualname"]}
 
 
 # -------------------------------------------------------------- write commands
@@ -186,7 +165,7 @@ def cmd_link(args):
     conn = connect(args, create=True)
     path, cg_id = args.path, args.cg_id
     if (not path or not cg_id) and not args.no_resolve:
-        info = cg_resolve(args.symbol)
+        info = graph_resolve(args, args.symbol)
         if info:
             resolved = (info.get("qualifiedName") or "")
             want = args.symbol.lower().rsplit(".", 1)[-1]
@@ -482,23 +461,23 @@ def cmd_dangling(args):
         return 0
     bad_edges, bad_links = _graph_dangling(conn)
     code_dangling = []
-    stale = False
-    if cg_available():
-        stale = cg_stale(cg_status())  # a stale index makes symbol re-resolution unreliable (R2)
+    gconn = graph_conn(args)
+    if gconn is not None and gconn.execute("SELECT 1 FROM symbol LIMIT 1").fetchone():
         for lk in conn.execute("SELECT * FROM code_link WHERE symbol IS NOT NULL AND symbol!=''").fetchall():
-            if cg_resolve(lk["symbol"]) is None:
+            name = lk["symbol"].rsplit(".", 1)[-1]
+            hit = gconn.execute(
+                "SELECT 1 FROM symbol WHERE qualname=? OR name=? LIMIT 1",
+                (lk["symbol"], name)).fetchone()
+            if hit is None:
                 code_dangling.append(lk)
     if args.json:
         print(json.dumps({
             "code_dangling": [dict(r) for r in code_dangling],
             "edge_dangling": [dict(r) for r in bad_edges],
             "link_node_missing": [dict(r) for r in bad_links],
-            "stale_index": stale,
+            "stale_index": False,
         }))
         return 0
-    if stale:
-        print("Note: codegraph index looks stale (uncommitted changes not yet synced) — run "
-              "'codegraph sync' first; intent->code results below may be unreliable.")
     if code_dangling:
         print("Dangling intent->code links (symbol no longer resolves — re-link or update):")
         for lk in code_dangling:
@@ -532,11 +511,32 @@ def cmd_lint(args):
         ).fetchone()
         if not (m.get("applies_to_paths") or has_link):
             no_scope.append(c["id"])
+    # dec-016 P3: auto-suggest code links — a decision/constraint that names an indexed
+    # symbol (code-ish token: underscore or mixed case) but isn't linked to it.
+    suggestions = []
+    gconn = graph_conn(args)
+    if gconn is not None:
+        names = {r["name"] for r in gconn.execute(
+            "SELECT DISTINCT name FROM symbol WHERE kind!='module' AND length(name)>=4").fetchall()
+            if "_" in r["name"] or not r["name"].islower()}
+        if names:
+            for n in conn.execute(
+                    "SELECT * FROM node WHERE kind IN ('decision','constraint') "
+                    "AND status NOT IN ('superseded','rejected')").fetchall():
+                toks = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", (n["title"] or "") + " " + (n["body"] or "")))
+                have = {lk["symbol"] for lk in conn.execute(
+                    "SELECT symbol FROM code_link WHERE node=?", (n["id"],)).fetchall()}
+                for h in sorted(toks & names):
+                    if not any(h in (s0 or "") for s0 in have):
+                        suggestions.append({"node": n["id"], "symbol": h})
+                if len(suggestions) >= 10:
+                    break
     report = {
         "broken_edges": [dict(r) for r in bad_edges],
         "broken_links": [dict(r) for r in bad_links],
         "constraints_without_forbid": toothless,
         "constraints_without_scope": no_scope,
+        "link_suggestions": suggestions[:10],
     }
     if args.json:
         print(json.dumps(report))
@@ -555,6 +555,9 @@ def cmd_lint(args):
                 print("  - %s" % it)
     if clean:
         print("intent graph: clean.")
+    for sug in suggestions[:10]:
+        print("suggest: devant link %s %s   (mentioned in %s but not linked)"
+              % (sug["node"], sug["symbol"], sug["node"]))
     return 0
 
 
@@ -589,9 +592,15 @@ def cmd_doctor(args):
             elkjs = "available" if r.returncode == 0 else "absent"
         except (OSError, subprocess.TimeoutExpired):
             pass
+    gconn = graph_conn(args)
+    gfiles = gsyms = 0
+    if gconn is not None:
+        gfiles = gconn.execute("SELECT COUNT(*) c FROM file").fetchone()["c"]
+        gsyms = gconn.execute("SELECT COUNT(*) c FROM symbol WHERE kind!='module'").fetchone()["c"]
     report = {
         "guard_engine": "ok" if engine_ok else "BROKEN",
-        "codegraph": "available" if cg_available() else "absent",
+        "graph_index": ("%d files, %d symbols" % (gfiles, gsyms)) if gfiles
+                       else "empty — run `devant graph sync` (or /devant:onboard)",
         "node": "available" if node_bin else "absent",
         "elkjs": elkjs,
         "intent_graph": "present" if conn is not None else "not onboarded (run /devant:onboard)",
@@ -600,8 +609,7 @@ def cmd_doctor(args):
         "never_used_specialists": dead,
     }
     remedy = {
-        "codegraph": "npm i -g @colbymchenry/codegraph",
-        "elkjs": "npm i -g elkjs",
+        "elkjs": "cd \"$CLAUDE_PLUGIN_DATA\" && npm i elkjs",
         "node": "install Node.js (e.g. via nvm)",
     }
     if args.json:
@@ -611,7 +619,7 @@ def cmd_doctor(args):
             v = report[key]
             print("%s %s" % (label, v if v == "available" else "%s — install: %s" % (v, remedy[key])))
         print("guard engine: %s" % report["guard_engine"])
-        line("codegraph", "codegraph:   ")
+        print("graph index:  %s" % report["graph_index"])
         line("node", "node:        ")
         line("elkjs", "elkjs:       ")
         print("intent graph: %s" % report["intent_graph"])

@@ -14,14 +14,14 @@ Design the change before anyone builds it. Your value is not a pretty write-up �
 The intent CLI is `devant` (on the Bash PATH while this plugin is enabled).
 
 ## 1. Ground in what actually exists — do not invent
-- Read the real code first: `codegraph_explore`/`codegraph_search` for the symbols, layers, and
+- Read the real code first: `devant graph explore`/`devant graph search` for the symbols, layers, and
   data the change touches. Describe the CURRENT design from the graph, not from assumption.
 - Detect the stack before proposing anything (language, framework, datastore, existing patterns
   for auth/config/errors/tests). The proposed design must fit *this* codebase's idioms and the
   standards it already follows — not a generic ideal.
 - Pull intent: `devant constraints --area "<request>"`, `devant direction`, `devant why <symbol>`.
   A design that revives a rejected decision or breaks a block rule is dead on arrival — say so now.
-- Size the blast radius: `codegraph_impact`/`codegraph_callers` on every symbol the change
+- Size the blast radius: `devant graph impact`/`devant graph callers` on every symbol the change
   reshapes. List the affected sites; they anchor the risk section.
 - **Grounding is a gate, not a gesture:** your Current-design section is invalid unless it cites
   the real symbols/files you actually read AND the real data model the change touches (persisted
@@ -59,7 +59,7 @@ sketch is a failed run, not a small one.
 ## 3. Present it in chat — current vs proposed, then STOP for approval
 Output to chat only (this mirrors the global design-first rule; keep it out of the repo). Structure:
 1. **Goal** — the change restated as a verifiable outcome.
-2. **Current design** — how it works today, grounded in codegraph (a small before-diagram in
+2. **Current design** — how it works today, grounded in the devant graph (a small before-diagram in
    text/ASCII is fine).
 3. **Proposed design** — the after: components, data flow, the standard/pattern it follows and why
    it suits this stack.

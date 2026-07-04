@@ -30,12 +30,12 @@ if [ "$INFO_LEAD" = "0" ] && printf '%s' "$PROMPT" | grep -qiE '\b(implement|add
   if [ ! -f "$PRIMED" ]; then
     : > "$PRIMED" 2>/dev/null
     CTX="[devant] Before changing code:
-- Necessity/Reuse ladder: 1) does it need to exist? 2) already here? (search codegraph, reuse — don't rewrite) 3) stdlib 4) platform 5) existing dep 6) one line 7) only then the minimum that works.
-- Size by BLAST RADIUS (codegraph impact/callers), not lines. No fixed pipeline: trivial -> one fast pass, no ceremony; wide fan-out -> a brief visible outline, then execute. Never quarter a small change.
+- Necessity/Reuse ladder: 1) does it need to exist? 2) already here? (search the devant graph, reuse — don't rewrite) 3) stdlib 4) platform 5) existing dep 6) one line 7) only then the minimum that works.
+- Size by BLAST RADIUS (devant graph impact/callers), not lines. No fixed pipeline: trivial -> one fast pass, no ceremony; wide fan-out -> a brief visible outline, then execute. Never quarter a small change.
 - Route substantial work to the specialist instead of inlining it; trivial work, just do it.
 - PUSH BACK if the request is wrong-layer, debt-prone, or contradicts recorded intent — name the cheaper correct path BEFORE editing. The user is not always right.
-- Done = verified: a bug needs a FAILING repro test first; run the codegraph affected subset; lint changed files. Compiling is NOT 'done'. Show real output. A test that can't fail before the fix proves nothing.
-- Cite codegraph/intent for claims about the code, or flag them as assumptions. Keep private intent (vision, decisions, rejected paths) out of commits, PRs, and code comments unless asked."
+- Done = verified: a bug needs a FAILING repro test first; run the `devant graph affected` subset; lint changed files. Compiling is NOT 'done'. Show real output. A test that can't fail before the fix proves nothing.
+- Cite the devant graph/intent for claims about the code, or flag them as assumptions. Keep private intent (vision, decisions, rejected paths) out of commits, PRs, and code comments unless asked."
   fi
   RULES=""
   dv_has_devant && RULES="$(cd "$PROJ" && dv_devant constraints --area "$PROMPT" 2>/dev/null | head -40)"

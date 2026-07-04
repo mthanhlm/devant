@@ -19,9 +19,10 @@ DV_STUB_RE='TODO|FIXME|XXX|NotImplementedError|not implemented'
 # dv_enabled: master switch. DEVANT=off disables all devant hook behavior.
 dv_enabled() { [ "${DEVANT:-on}" != "off" ]; }
 
-# dv_has_codegraph: is the codegraph CLI usable? DEVANT_CODEGRAPH=off disables
-# the codegraph lifecycle (structural features then degrade to Read/Grep).
-dv_has_codegraph() { [ "${DEVANT_CODEGRAPH:-on}" != "off" ] && command -v codegraph >/dev/null 2>&1; }
+# dv_graph_enabled: is the devant graph lifecycle on? DEVANT_CODEGRAPH=off disables
+# it (legacy env name kept for compatibility; structural features then degrade to
+# Read/Grep until `devant graph sync` runs).
+dv_graph_enabled() { [ "${DEVANT_CODEGRAPH:-on}" != "off" ]; }
 
 # dv_has_devant: is the devant CLI present and python3 available?
 dv_has_devant() { [ -f "$DEVANT_BIN" ] && command -v python3 >/dev/null 2>&1; }

@@ -1,17 +1,60 @@
 {
   "symbols": [
-    {"qualname": "Store", "kind": "class"},
-    {"qualname": "Store.__init__", "kind": "function"},
-    {"qualname": "Store.load", "kind": "function"},
-    {"qualname": "CachedStore", "kind": "class"},
-    {"qualname": "CachedStore.load", "kind": "function"},
-    {"qualname": "read_config", "kind": "function"}
+    {
+      "qualname": "Store",
+      "kind": "class"
+    },
+    {
+      "qualname": "Store.__init__",
+      "kind": "function"
+    },
+    {
+      "qualname": "Store.load",
+      "kind": "function"
+    },
+    {
+      "qualname": "CachedStore",
+      "kind": "class"
+    },
+    {
+      "qualname": "CachedStore.load",
+      "kind": "function"
+    },
+    {
+      "qualname": "read_config",
+      "kind": "function"
+    }
   ],
   "refs": [
-    {"src": "CachedStore", "dst": "Store", "kind": "inherits"},
-    {"src": "read_config", "dst": "Store", "kind": "calls"},
-    {"src": "read_config", "dst": "Store.load", "kind": "calls"},
-    {"src": "Store.load", "dst_name": "json.load", "kind": "calls"},
-    {"src": "sample", "dst_name": "json", "kind": "imports"}
+    {
+      "src": "CachedStore",
+      "dst": "Store",
+      "kind": "inherits"
+    },
+    {
+      "src": "read_config",
+      "dst": "Store",
+      "kind": "calls"
+    },
+    {
+      "src": "read_config",
+      "dst": "Store.load",
+      "kind": "calls"
+    },
+    {
+      "src": "Store.load",
+      "dst_name": "json.load",
+      "kind": "calls"
+    },
+    {
+      "src": "sample",
+      "dst_name": "json",
+      "kind": "imports"
+    },
+    {
+      "src": "CachedStore.load",
+      "dst": "Store.load",
+      "kind": "calls"
+    }
   ]
 }
