@@ -1,0 +1,8 @@
+[
+  {
+    "name": "devant-context",
+    "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/lib/context_monitor.py\"",
+    "description": "Context usage vs the phase gate — smart compaction scheduling (dec-018)",
+    "when": "always"
+  }
+]

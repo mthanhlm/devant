@@ -1,0 +1,110 @@
+<mxfile host="devant">
+  <diagram name="devant-graph v2.2" id="devant-graph">
+    <mxGraphModel dx="1100" dy="720" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="cg" value="&lt;b&gt;codegraph npm CLI&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#B85450&quot;&gt;[External — removed at P1 cutover, benchmark-gated]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;fillColor=#F5F5F5;strokeColor=#666666;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="60" y="40" width="300" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="annot" value="&lt;b&gt;Annotation fan-out&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[Skill: session model + Haiku 4.5 subagents]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="940" y="40" width="240" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="skills" value="&lt;b&gt;devant skills&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[router → specialists, Bash]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1220" y="40" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="hooksbound" value="Claude Code hooks [bash + python helpers]" style="rounded=0;dashed=1;fillColor=none;strokeColor=#666666;verticalAlign=top;fontStyle=2;fontColor=#555555;fontFamily=Helvetica;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="160" width="340" height="340" as="geometry" />
+        </mxCell>
+        <mxCell id="hk1" value="&lt;b&gt;session-start.sh&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[hash-sweep + cheatsheet]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="80" y="220" width="260" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="hk2" value="&lt;b&gt;post-tool-write → stop.sh&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[.touched → sync, ≤20 s]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="80" y="310" width="260" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="hk3" value="&lt;b&gt;guard_write / guard_bash&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[PreToolUse]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="80" y="400" width="260" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="corebound" value="devant CLI — bin/devant → devantlib/ [Container: Python stdlib, lazy imports]" style="rounded=0;dashed=1;fillColor=none;strokeColor=#666666;verticalAlign=top;fontStyle=2;fontColor=#555555;fontFamily=Helvetica;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="440" y="160" width="1060" height="440" as="geometry" />
+        </mxCell>
+        <mxCell id="se" value="&lt;b&gt;Sync engine&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[hash incremental · GC · budget queue]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="500" y="230" width="240" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ex" value="&lt;b&gt;Extractor framework&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[tokenizer + scope; ast, JS/TS, Go…]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="840" y="230" width="240" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="qe" value="&lt;b&gt;Query engine&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[search · explore · impact · affected · annotate]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="230" width="240" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ge" value="&lt;b&gt;Guard engine&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[evaluate_guard / evaluate_bash]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="500" y="400" width="240" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ic" value="&lt;b&gt;Intent commands&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[decide · link · why · lint]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="840" y="400" width="240" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="storebound" value=".devant/ store — ONE logical graph, two physical files (ATTACH)" style="rounded=0;dashed=1;fillColor=none;strokeColor=#666666;verticalAlign=top;fontStyle=2;fontColor=#555555;fontFamily=Helvetica;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="460" y="650" width="1020" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="intentdb" value="&lt;b&gt;intent.db&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[node · edge · code_link · node_history]&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;fillColor=#E1D5E7;strokeColor=#9673A6;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="500" y="700" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="indexdb" value="&lt;b&gt;index.db&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[file · symbol · ref · resource · annotation · FTS5]&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;fillColor=#E1D5E7;strokeColor=#9673A6;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="700" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="e_skills" value="graph queries (Bash)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="skills" target="qe">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_annot" value="graph annotate (Bash)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.25;entryY=0;" edge="1" parent="1" source="annot" target="qe">
+          <mxGeometry x="-0.4" relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1060" y="140" />
+              <mxPoint x="1260" y="140" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_hk1" value="hash-sweep on start" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.25;" edge="1" parent="1" source="hk1" target="se">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_hk2" value="sync --touched" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.75;" edge="1" parent="1" source="hk2" target="se">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_hk3" value="deny/ask/allow" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="hk3" target="ge">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_se_ex" value="parses" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="se" target="ex">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_se_db" value="writes (upsert, per-file txn)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0;entryY=0.3;" edge="1" parent="1" source="se" target="indexdb">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="620" y="360" />
+              <mxPoint x="1140" y="360" />
+              <mxPoint x="1140" y="730" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_qe_db" value="reads (SQL; intent.db ATTACHed)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="qe" target="indexdb">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_ge_db" value="reads block rules" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;exitX=0.3;exitY=1;entryX=0.3;entryY=0;" edge="1" parent="1" source="ge" target="intentdb">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_ic_db" value="writes (journaled → node_history)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.7;entryY=0;" edge="1" parent="1" source="ic" target="intentdb">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="960" y="560" />
+              <mxPoint x="668" y="560" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_attach" value="ATTACH — one logical graph" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#9673A6;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;startArrow=none;endArrow=none;exitX=1;exitY=0.7;entryX=0;entryY=0.7;" edge="1" parent="1" source="intentdb" target="indexdb">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend" value="&lt;b&gt;Legend&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#6C8EBF&quot;&gt;&#9632;&lt;/font&gt; devant CLI component&#160;&#160;&lt;font color=&quot;#82B366&quot;&gt;&#9632;&lt;/font&gt; Claude Code integration (hooks / skills)&lt;br&gt;&lt;font color=&quot;#9673A6&quot;&gt;&#9632;&lt;/font&gt; Data store&#160;&#160;&lt;font color=&quot;#666666&quot;&gt;&#9632;&lt;/font&gt; External (dashed = removed)&lt;br&gt;dashed box = boundary&#160;&#160;&#8594; labelled with the interaction" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#FFFFFF;strokeColor=#CCCCCC;fontFamily=Helvetica;fontSize=11;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="40" y="680" width="380" height="110" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

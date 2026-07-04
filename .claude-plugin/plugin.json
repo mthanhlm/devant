@@ -1,7 +1,10 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "devant",
   "displayName": "Devant",
-  "version": "0.8.0",
+  "version": "0.9.0",
+  "repository": "https://github.com/mthanhlm/devant",
+  "license": "MIT",
   "description": "A single-command, intent-aware coding companion. Onboards by scanning the repo with codegraph, captures the project's vision/direction/non-goals/rules as a local intent graph you own, and works like a teammate who knows what to do and what NOT to do. Lean, fast, ceremony scaled to blast radius. Everything it stores stays local and is never committed.",
   "author": {
     "name": "mthanhlm"
@@ -14,5 +17,31 @@
     "technical-debt",
     "lean",
     "local-only"
-  ]
+  ],
+  "experimental": {
+    "monitors": "./monitors/monitors.json"
+  },
+  "userConfig": {
+    "smart_compact": {
+      "type": "boolean",
+      "title": "Smart compaction",
+      "default": true,
+      "description": "Phase-gated smart compaction (dec-018): defer auto-compact mid-phase; land it at phase boundaries."
+    },
+    "compact_floor_pct": {
+      "type": "number",
+      "title": "Compact floor (%)",
+      "default": 50,
+      "min": 1,
+      "max": 100,
+      "description": "Context % where the pending-compact notification arms. To actually compact this early locally, set BOTH CLAUDE_CODE_AUTO_COMPACT_WINDOW and CLAUDE_AUTOCOMPACT_PCT_OVERRIDE in settings env (the override only applies when the window is set)."
+    },
+    "context_window_tokens": {
+      "type": "number",
+      "title": "Context window (tokens)",
+      "default": 500000,
+      "min": 10000,
+      "description": "Auto-compact window used for context-% math. Match CLAUDE_CODE_AUTO_COMPACT_WINDOW if you set it."
+    }
+  }
 }

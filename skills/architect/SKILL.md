@@ -2,14 +2,16 @@
 name: architect
 user-invocable: false
 effort: high
-description: devant specialist (router-invoked) to design a change BEFORE it is built — a design-first pass grounded in codegraph and the intent graph that proactively surfaces the critical decisions and failure modes the user didn't think to raise, matched to the codebase's actual stack and to popular standards. Read-only: presents current-vs-proposed in chat, gates on approval, and writes no code and no plan/spec files.
+allowed-tools: Bash(devant *)
+disallowed-tools: Write, Edit, NotebookEdit
+description: devant specialist (router-invoked): design a change BEFORE building it — current-vs-proposed in chat, surfaces the critical decisions/failure modes, gates on approval. Read-only, no plan/spec files.
 ---
 
 # devant: architect
 
 Design the change before anyone builds it. Your value is not a pretty write-up — it is
 **catching the critical problems the user is not aware of**, so approval happens with eyes open.
-The intent CLI is `python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant"` (`devant` below).
+The intent CLI is `devant` (on the Bash PATH while this plugin is enabled).
 
 ## 1. Ground in what actually exists — do not invent
 - Read the real code first: `codegraph_explore`/`codegraph_search` for the symbols, layers, and
@@ -91,7 +93,15 @@ is flow-shaped. That gives a durable, shareable picture of what was agreed befor
 builds it. (The `devant:diagram` skill is also usable on its own for any diagram; it does not
 depend on this skill.) Then hand the approved design to `devant:code` to implement.
 
+**An explicit ask to draw overrides that timing.** If the user asks for the draw.io diagram at any
+point — "draw it", "draw the drawio", "show me the diagram" — invoke `devant:diagram` right then
+on the design as it currently stands, even before approval. Answering a draw request with a prose
+or ASCII description instead of the rendered `.drawio` is a contract violation of this skill.
+
 ## 4. Record a real decision (only if one was settled)
 If the design settled a genuine architectural choice or ruled one out, capture it once:
 `devant decide --title "…" --body "<why>" [--rejected "…" --why-rejected "…"] [--realizes <goal>]`.
 One node. Don't log speculative options the user hasn't chosen.
+
+On approval, also mark the phase boundary so smart compaction (dec-018) can land here:
+`devant phase --set "design-locked: <dec-id>; next: implement" --open`.

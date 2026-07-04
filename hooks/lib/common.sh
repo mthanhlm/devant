@@ -9,6 +9,13 @@
 _DV_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEVANT_BIN="${CLAUDE_PLUGIN_ROOT:-$_DV_LIB/../..}/bin/devant"
 
+# Keep hook-python bytecode out of the versioned plugin install dir (it's replaced on
+# every update); the plugin data dir persists across updates.
+export PYTHONPYCACHEPREFIX="${CLAUDE_PLUGIN_DATA:-${TMPDIR:-/tmp}}/pycache"
+
+# Unfinished-work markers scanned in touched files (Stop note + TaskCompleted gate).
+DV_STUB_RE='TODO|FIXME|XXX|NotImplementedError|not implemented'
+
 # dv_enabled: master switch. DEVANT=off disables all devant hook behavior.
 dv_enabled() { [ "${DEVANT:-on}" != "off" ]; }
 
@@ -66,6 +73,24 @@ dv_project_dir() {
 # dv_sid <session_id>: slug a session id so it can't traverse paths when used in a filename.
 dv_sid() { printf '%s' "${1:-_}" | tr -c 'A-Za-z0-9_.-' '_'; }
 
+# dv_sid_from <input-json> / dv_proj_from <input-json>: session id and project root,
+# preferring the env vars Claude Code guarantees to hook processes (no python spawn);
+# the JSON parse stays as the fallback for older versions and standalone testing.
+dv_sid_from() {
+  if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+    dv_sid "$CLAUDE_CODE_SESSION_ID"
+  else
+    dv_sid "$(printf '%s' "$1" | json_field session_id)"
+  fi
+}
+dv_proj_from() {
+  if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -d "${CLAUDE_PROJECT_DIR}" ]; then
+    printf '%s' "$CLAUDE_PROJECT_DIR"
+  else
+    dv_project_dir "$(printf '%s' "$1" | json_field cwd)"
+  fi
+}
+
 # dv_state_dir <proj>: ensure and echo the gitignored local state dir.
 dv_state_dir() {
   local s="$1/.devant/state"
@@ -109,33 +134,3 @@ if out:
 ' "$1" "${2:-}"
 }
 
-# dv_ensure_global_autocompact: on first run ever (key absent), enable
-# autoCompactEnabled in the user's global settings.json (CLAUDE_CONFIG_DIR,
-# default ~/.claude) so long sessions auto-compact instead of hitting the
-# context limit. Never overwrites an explicit true/false the user already
-# set. Prints "set" if it just enabled it, "skip" otherwise.
-dv_ensure_global_autocompact() {
-  python3 -c '
-import json, os, sys, tempfile
-cfg_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
-path = os.path.join(cfg_dir, "settings.json")
-try:
-    with open(path) as f:
-        data = json.load(f)
-except (FileNotFoundError, json.JSONDecodeError):
-    data = {}
-if not isinstance(data, dict) or "autoCompactEnabled" in data:
-    print("skip"); sys.exit(0)
-data["autoCompactEnabled"] = True
-try:
-    os.makedirs(cfg_dir, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=cfg_dir)
-    with os.fdopen(fd, "w") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
-    os.replace(tmp, path)
-    print("set")
-except OSError:
-    print("skip")
-' 2>/dev/null
-}

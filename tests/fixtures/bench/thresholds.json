@@ -1,0 +1,6 @@
+{
+  "_comment": "Cutover gate (dec-016): the P1 extractor must reach these floors on every language fixture (and on the external comparison repo) before codegraph is removed.",
+  "symbols": {"recall": 0.95, "precision": 0.95},
+  "calls": {"recall": 0.80, "precision": 0.85},
+  "affected": {"recall": 0.90}
+}

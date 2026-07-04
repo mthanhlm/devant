@@ -1,6 +1,7 @@
 ---
 description: Your coding companion — ask about the codebase, change code, write docs, or recall the project's direction. One command; devant routes it.
 argument-hint: "<what you need>"
+disable-model-invocation: true
 ---
 
 Handle this request with the `devant:router` skill: ground in codegraph + the local intent

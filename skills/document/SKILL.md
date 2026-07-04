@@ -2,13 +2,13 @@
 name: document
 user-invocable: false
 effort: medium
-description: devant specialist (router-invoked) to write or update documentation grounded in the code (codegraph) and the project's vision/audience (intent graph). Updates existing docs in place; never spawns stray plan/spec/report files.
+allowed-tools: Bash(devant *)
+description: devant specialist (router-invoked): write or update docs grounded in codegraph and the intent graph's vision/audience. Updates in place; no stray files.
 ---
 
 # devant: document
 
-Produce docs that match the code and the project's intent. The intent CLI is
-`python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant"`.
+Produce docs that match the code and the project's intent. The intent CLI is `devant`.
 
 - **Ground in reality** — describe what the code actually does (`codegraph_explore`/`search`),
   not what you assume. Frame it for the audience and vision (`devant direction`,

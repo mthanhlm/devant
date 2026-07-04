@@ -2,13 +2,13 @@
 name: router
 user-invocable: false
 effort: low
+allowed-tools: Bash(devant *)
 description: Entry point for any request on this codebase via /devant:run — answer a question, change code, write docs, or recall the project's direction/decisions. Grounds in codegraph and the intent graph, pushes back on debt, and dispatches to one specialist. Also the target of the /devant:run command.
 ---
 
 # devant: router
 
-You are the single entry point. Produce ONE coherent result. The intent CLI is
-`python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant"` (call it `devant` below).
+You are the single entry point. Produce ONE coherent result. The intent CLI is `devant` (call it `devant` below).
 
 ## 1. Ground (cheap, always)
 - SessionStart already injected the intent brief. For the touched area, run
@@ -70,4 +70,4 @@ Never decompose a small change for process; there is no fixed pipeline.
 
 ## 5. Disclose & log
 End with a one-line note of what you did: `route: <specialist> · <why>`. Then record it:
-`python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant" log <ask|code|document|intent|architect|diagram> "<short intent>"`.
+`devant log <ask|code|document|intent|architect|diagram> "<short intent>"`.

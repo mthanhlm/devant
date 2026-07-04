@@ -93,6 +93,13 @@ class PureFns(unittest.TestCase):
                   "git restore -SW .", "git switch --discard-changes main", "git switch -f main"):
             self.assertEqual(dv.evaluate_bash(c)[0], "deny", c)
 
+    def test_evaluate_bash_quoted_pipe_is_not_a_segment_break(self):
+        # regression: the pre-shlex split on '|' broke quoted patterns into an
+        # unbalanced-quote segment, and the conservative fallback denied a read-only grep.
+        self.assertEqual(dv.evaluate_bash('grep "a\\|git commit" f.txt')[0], "allow")
+        self.assertEqual(dv.evaluate_bash("grep 'x;git add' f.txt")[0], "allow")
+        self.assertEqual(dv.evaluate_bash("ls | git commit -m x")[0], "deny")  # real pipe still splits
+
     def test_evaluate_bash_allows_readonly_and_nongit(self):
         for c in ("git status", "git diff", "git log --grep=push", "git branch",
                   "git checkout main", "git checkout -b feat", "git checkout -b feat main",
@@ -248,6 +255,7 @@ class HookTests(unittest.TestCase):
         self.cfg_dir = os.path.join(self.proj, ".fake-claude-config")
         self.env = dict(os.environ, CLAUDE_PLUGIN_ROOT=ROOT,
                         CLAUDE_PROJECT_DIR=self.proj, DEVANT_CODEGRAPH="off",
+                        CLAUDE_CODE_SESSION_ID="h",
                         CLAUDE_CONFIG_DIR=self.cfg_dir)
         subprocess.run([sys.executable, BIN, "--db", self.db, "add-node", "--kind", "constraint",
                         "--id", "con-001", "--title", "no sqlite in handlers", "--body", "use the repo layer",
@@ -306,6 +314,7 @@ class HookTests(unittest.TestCase):
         self.assertEqual(b("ls -la && grep foo bar.txt"), "allow")
 
     def test_stop_hook_emits_note_after_touched(self):
+        # dec-019: the note is native Stop additionalContext (same turn), not a .lastturn relay.
         srcdir = os.path.join(self.proj, "src")
         os.makedirs(srcdir, exist_ok=True)
         fpath = os.path.join(srcdir, "h.py")
@@ -315,11 +324,57 @@ class HookTests(unittest.TestCase):
         os.makedirs(state, exist_ok=True)
         with open(os.path.join(state, "h.touched"), "w") as fh:
             fh.write(fpath + "\n")
-        self.hook("stop.sh", {"cwd": self.proj, "session_id": "h"})
-        note = os.path.join(state, "h.lastturn")
-        self.assertTrue(os.path.exists(note))
-        with open(note) as fh:
-            self.assertIn("TODO", fh.read())
+        r = self.hook("stop.sh", {"cwd": self.proj, "session_id": "h"})
+        self.assertIn("TODO", self.ctx(r))
+        self.assertFalse(os.path.exists(os.path.join(state, "h.lastturn")))
+
+    def test_stop_hook_active_short_circuits(self):
+        state = os.path.join(self.proj, ".devant", "state")
+        os.makedirs(state, exist_ok=True)
+        with open(os.path.join(state, "h.touched"), "w") as fh:
+            fh.write(os.path.join(self.proj, "x.py") + "\n")
+        r = self.hook("stop.sh", {"cwd": self.proj, "session_id": "h", "stop_hook_active": True})
+        self.assertEqual(r.stdout.strip(), "")                                   # loop guard
+        self.assertTrue(os.path.exists(os.path.join(state, "h.touched")))        # nothing consumed
+
+    def test_task_completed_blocks_on_stub_markers(self):
+        srcdir = os.path.join(self.proj, "src")
+        os.makedirs(srcdir, exist_ok=True)
+        fpath = os.path.join(srcdir, "t.py")
+        with open(fpath, "w") as fh:
+            fh.write("def f():\n    raise NotImplementedError\n")
+        state = os.path.join(self.proj, ".devant", "state")
+        os.makedirs(state, exist_ok=True)
+        with open(os.path.join(state, "h.touched"), "w") as fh:
+            fh.write(fpath + "\n")
+        r = self.hook("task-completed.sh", {"cwd": self.proj, "session_id": "h"})
+        self.assertEqual(r.returncode, 2)                                        # blocks completion
+        self.assertIn("unfinished markers", r.stderr.lower())
+        with open(fpath, "w") as fh:
+            fh.write("def f():\n    return 1\n")
+        r = self.hook("task-completed.sh", {"cwd": self.proj, "session_id": "h"})
+        self.assertEqual(r.returncode, 0)                                        # clean -> allow
+
+    def test_warn_rule_informs_without_blocking(self):
+        # dec-019: warn-severity constraints surface as allow+additionalContext, not a modal ask.
+        subprocess.run([sys.executable, BIN, "--db", self.db, "add-node", "--kind", "constraint",
+                        "--id", "con-w", "--title", "prefer the http client", "--body", "r",
+                        "--applies", "src/**/*.py", "--forbid", "import urllib3", "--severity", "warn"],
+                       capture_output=True, text=True, env=self.env)
+        r = self.w("src/warned.py", "import urllib3\n")
+        out = json.loads(r.stdout)["hookSpecificOutput"]
+        self.assertEqual(out["permissionDecision"], "allow")
+        self.assertIn("warn rule", out["additionalContext"])
+
+    def test_notebook_edit_is_guarded_and_tracked(self):
+        ev = {"cwd": self.proj, "session_id": "h", "tool_name": "NotebookEdit",
+              "tool_input": {"notebook_path": os.path.join(self.proj, "src", "n.ipynb"),
+                             "new_string": "k = 'ghp_abcdefabcdefabcdefabcdefabcdef1234'"}}
+        self.assertEqual(self.decision(self.hook("pre-tool-write.sh", ev)), "deny")
+        self.hook("post-tool-write.sh", {"cwd": self.proj, "session_id": "h", "tool_name": "NotebookEdit",
+                                         "tool_input": {"notebook_path": os.path.join(self.proj, "src", "n.ipynb")}})
+        with open(os.path.join(self.proj, ".devant", "state", "h.touched")) as fh:
+            self.assertIn("n.ipynb", fh.read())
 
     def test_subagent_stop_preserves_touched_for_real_stop(self):
         state = os.path.join(self.proj, ".devant", "state")
@@ -327,9 +382,9 @@ class HookTests(unittest.TestCase):
         touched = os.path.join(state, "h.touched")
         with open(touched, "w") as fh:
             fh.write(os.path.join(self.proj, "src", "h.py") + "\n")
-        self.hook("stop.sh", {"cwd": self.proj, "session_id": "h", "hook_event_name": "SubagentStop"})
+        r = self.hook("stop.sh", {"cwd": self.proj, "session_id": "h", "hook_event_name": "SubagentStop"})
         self.assertTrue(os.path.exists(touched))                                        # not consumed
-        self.assertFalse(os.path.exists(os.path.join(state, "h.lastturn")))             # no note yet
+        self.assertEqual(r.stdout.strip(), "")                                          # no note yet
 
     def ctx(self, r):
         out = r.stdout.strip()
@@ -339,29 +394,16 @@ class HookTests(unittest.TestCase):
         r = self.hook("session-start.sh", {"cwd": self.proj, "session_id": "ss"})
         self.assertIn("no sqlite in handlers", self.ctx(r))   # the block rule seeded in setUp
 
-    def sysmsg(self, r):
-        out = r.stdout.strip()
-        return json.loads(out).get("systemMessage", "") if out else ""
-
-    def test_session_start_enables_global_autocompact_once(self):
-        settings = os.path.join(self.cfg_dir, "settings.json")
-        r1 = self.hook("session-start.sh", {"cwd": self.proj, "session_id": "ss"})
-        self.assertIn("autoCompactEnabled", self.sysmsg(r1))
-        with open(settings) as fh:
-            self.assertEqual(json.load(fh)["autoCompactEnabled"], True)
-
-        r2 = self.hook("session-start.sh", {"cwd": self.proj, "session_id": "ss"})
-        self.assertEqual(self.sysmsg(r2), "")   # already set, no repeat nudge
-
-    def test_session_start_never_overwrites_explicit_autocompact_choice(self):
-        os.makedirs(self.cfg_dir, exist_ok=True)
-        settings = os.path.join(self.cfg_dir, "settings.json")
-        with open(settings, "w") as fh:
-            json.dump({"autoCompactEnabled": False}, fh)
-        r = self.hook("session-start.sh", {"cwd": self.proj, "session_id": "ss"})
-        self.assertEqual(self.sysmsg(r), "")
-        with open(settings) as fh:
-            self.assertEqual(json.load(fh)["autoCompactEnabled"], False)   # untouched
+    def test_session_start_persists_transcript_path(self):
+        tp = os.path.join(self.proj, "fake-transcript.jsonl")
+        open(tp, "w").close()
+        self.hook("session-start.sh", {"cwd": self.proj, "session_id": "ss",
+                                       "transcript_path": tp, "model": "claude-sonnet-5"})
+        state = os.path.join(self.proj, ".devant", "state")
+        with open(os.path.join(state, "transcript.path")) as fh:
+            self.assertEqual(fh.read().strip(), tp)
+        with open(os.path.join(state, "model")) as fh:
+            self.assertEqual(fh.read().strip(), "claude-sonnet-5")
 
     def test_user_prompt_injects_on_change_verb(self):
         ctx = self.ctx(self.hook("user-prompt.sh",
@@ -385,6 +427,281 @@ class HookTests(unittest.TestCase):
         self.assertNotIn("Before changing code", self.ctx(self.hook("user-prompt.sh", ev)))  # deduped while primed
         self.hook("pre-compact.sh", {"cwd": self.proj, "session_id": "pc", "trigger": "auto"})
         self.assertIn("Before changing code", self.ctx(self.hook("user-prompt.sh", ev)))     # compaction re-primes
+
+
+class GraphP0(unittest.TestCase):
+    """P0 contract for the devant graph (dec-016): index.db schema, the frozen -j output
+    shape of every `devant graph` subcommand, node_history journaling, and the guard
+    hot-path isolation guarantee of the devantlib split."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.proj = self.tmp.name
+        self.db = os.path.join(self.proj, ".devant", "intent.db")
+        self.idx = os.path.join(self.proj, ".devant", "index.db")
+        self.env = dict(os.environ, CLAUDE_PROJECT_DIR=self.proj, DEVANT_CODEGRAPH="off")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def dv(self, *args, stdin=None, env=None):
+        return subprocess.run([sys.executable, BIN, "--db", self.db, "--index-db", self.idx, *args],
+                              input=stdin, capture_output=True, text=True, env=env or self.env)
+
+    def put(self, rel, content):
+        p = os.path.join(self.proj, rel)
+        d = os.path.dirname(p)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        mode = "wb" if isinstance(content, bytes) else "w"
+        with open(p, mode) as fh:
+            fh.write(content)
+
+    def test_contract_output_shapes_frozen(self):
+        # The -j key sets below ARE the P0 CLI contract — later phases may only add keys.
+        self.put("src/app.py", "def f():\n    return 1\n")
+        r = json.loads(self.dv("graph", "sync", "-j").stdout)
+        self.assertEqual(set(r), {"scanned", "indexed", "updated", "removed", "skipped"})
+        r = json.loads(self.dv("graph", "status", "-j").stdout)
+        self.assertEqual(set(r), {"schema_version", "files", "symbols", "langs", "fts"})
+        self.assertIsInstance(json.loads(self.dv("graph", "search", "app", "-j").stdout), list)
+        r = json.loads(self.dv("graph", "explore", "app", "-j").stdout)
+        self.assertEqual(set(r), {"symbols", "files", "intent"})
+        self.assertIsInstance(json.loads(self.dv("graph", "callers", "f", "-j").stdout), list)
+        self.assertIsInstance(json.loads(self.dv("graph", "callees", "f", "-j").stdout), list)
+        r = json.loads(self.dv("graph", "impact", "f", "-j").stdout)
+        self.assertEqual(set(r), {"symbols", "intent"})
+        self.assertIsInstance(json.loads(self.dv("graph", "affected", "src/app.py", "-j").stdout), list)
+        r = json.loads(self.dv("graph", "annotate", "--key", "src/app.py", "--type", "file",
+                               "--summary", "entry point", "-j").stdout)
+        self.assertEqual(set(r), {"target_key", "target_type"})
+
+    def test_sync_is_hash_incremental_with_gc(self):
+        self.put("a.py", "x = 1\n")
+        self.put("b.py", "y = 2\n")
+        r = json.loads(self.dv("graph", "sync", "-j").stdout)
+        self.assertEqual((r["indexed"], r["updated"], r["removed"]), (2, 0, 0))
+        r = json.loads(self.dv("graph", "sync", "-j").stdout)          # nothing changed
+        self.assertEqual((r["indexed"], r["updated"], r["removed"]), (0, 0, 0))
+        self.put("a.py", "x = 42\n")                                    # content changed
+        os.remove(os.path.join(self.proj, "b.py"))                      # file deleted
+        r = json.loads(self.dv("graph", "sync", "-j").stdout)
+        self.assertEqual((r["indexed"], r["updated"], r["removed"]), (0, 1, 1))
+        st = json.loads(self.dv("graph", "status", "-j").stdout)
+        self.assertEqual(st["files"], 1)                                # GC really removed the row
+
+    def test_sync_skips_binary_large_and_symlink(self):
+        self.put("ok.py", "x = 1\n")
+        self.put("blob.bin", b"\x00\x01\x02data")
+        self.put("huge.js", "a" * 1_100_000)
+        os.symlink(os.path.join(self.proj, "ok.py"), os.path.join(self.proj, "lnk.py"))
+        r = json.loads(self.dv("graph", "sync", "-j").stdout)
+        self.assertGreaterEqual(r["skipped"], 3)
+        st = json.loads(self.dv("graph", "status", "-j").stdout)
+        self.assertEqual(st["files"], 1)
+
+    def test_node_history_journals_overwrite(self):
+        self.dv("add-node", "--kind", "note", "--id", "note-1", "--title", "first", "--body", "b")
+        self.dv("add-node", "--kind", "note", "--id", "note-1", "--title", "second", "--body", "b")
+        import sqlite3
+        conn = sqlite3.connect(self.db)
+        hist = [t for (t,) in conn.execute(
+            "SELECT title FROM node_history WHERE node_id='note-1'").fetchall()]
+        self.assertIn("first", hist)                                    # old row journaled
+        (updated,) = conn.execute("SELECT updated FROM node WHERE id='note-1'").fetchone()
+        self.assertTrue(updated)                                        # edit stamped
+
+    def test_index_created_with_incremental_autovacuum(self):
+        self.put("a.py", "x = 1\n")
+        self.dv("graph", "sync")
+        import sqlite3
+        av = sqlite3.connect(self.idx).execute("PRAGMA auto_vacuum").fetchone()[0]
+        self.assertEqual(av, 2)                                         # INCREMENTAL
+
+    def test_fts_fallback_still_searches(self):
+        env = dict(self.env, DEVANT_FTS="off")
+        self.put("m.py", "x = 1\n")
+        self.dv("graph", "sync", env=env)
+        self.dv("graph", "annotate", "--key", "m.py", "--type", "file",
+                "--summary", "handles auth flows", "--concepts", "auth", env=env)
+        st = json.loads(self.dv("graph", "status", "-j", env=env).stdout)
+        self.assertEqual(st["fts"], "like")
+        hits = json.loads(self.dv("graph", "search", "auth", "-j", env=env).stdout)
+        self.assertTrue(any(h.get("kind") == "annotation" for h in hits))
+
+    def test_search_joins_intent_nodes(self):
+        self.dv("decide", "--title", "Use bcrypt for auth hashing", "--body", "r", "--id", "dec-a")
+        self.put("m.py", "x = 1\n")
+        self.dv("graph", "sync")
+        hits = json.loads(self.dv("graph", "search", "auth", "-j").stdout)
+        self.assertTrue(any(h.get("kind") == "decision" and h.get("id") == "dec-a" for h in hits))
+
+    def test_impact_crosses_into_intent_links(self):
+        self.dv("add-node", "--kind", "constraint", "--id", "con-a", "--title", "guarded fn",
+                "--body", "r", "--applies", "src/**", "--forbid", "eval(", "--severity", "block")
+        self.dv("link", "con-a", "src.handlers.save", "--relation", "constrains",
+                "--path", "src/handlers.py", "--no-resolve")
+        self.put("m.py", "x = 1\n")
+        self.dv("graph", "sync")
+        r = json.loads(self.dv("graph", "impact", "src.handlers.save", "-j").stdout)
+        self.assertTrue(any(n["id"] == "con-a" for n in r["intent"]))
+
+    def test_affected_maps_by_convention_with_provenance(self):
+        self.put("src/util.py", "def add(a, b):\n    return a + b\n")
+        self.put("tests/test_util.py", "import unittest\n")
+        self.dv("graph", "sync")
+        rows = json.loads(self.dv("graph", "affected", "src/util.py", "-j").stdout)
+        self.assertEqual([(r["path"], r["via"]) for r in rows], [("tests/test_util.py", "convention")])
+        rows = json.loads(self.dv("graph", "affected", "tests/test_util.py", "-j").stdout)
+        self.assertEqual(rows[0]["via"], "self")
+
+    def test_reannotate_replaces_search_row(self):
+        # INSERT OR REPLACE only fires the search_idx DELETE trigger with
+        # recursive_triggers=ON — without it, stale rows accumulate forever.
+        self.put("m.py", "x = 1\n")
+        self.dv("graph", "sync")
+        self.dv("graph", "annotate", "--key", "m.py", "--type", "file", "--summary", "auth handling")
+        self.dv("graph", "annotate", "--key", "m.py", "--type", "file", "--summary", "billing handling")
+        hits = json.loads(self.dv("graph", "search", "auth", "-j").stdout)
+        self.assertFalse(any(h.get("kind") == "annotation" for h in hits))
+        import sqlite3
+        n = sqlite3.connect(self.idx).execute(
+            "SELECT COUNT(*) FROM search_idx WHERE target_key='m.py'").fetchone()[0]
+        self.assertEqual(n, 1)
+
+    def test_git_scan_survives_non_ascii_and_skips_devant(self):
+        subprocess.run(["git", "init", "-q"], cwd=self.proj, capture_output=True)
+        self.put("café.py", "x = 1\n")
+        self.dv("graph", "sync")                    # creates .devant/index.db(+wal) mid-tree
+        self.dv("graph", "sync")                    # second pass must not index devant's own state
+        import sqlite3
+        paths = [p for (p,) in sqlite3.connect(self.idx).execute("SELECT path FROM file").fetchall()]
+        self.assertIn("café.py", paths)        # -z beats core.quotePath mangling
+        self.assertFalse(any(p.startswith(".devant/") for p in paths))
+
+    def test_node_history_journals_meta_downgrade(self):
+        self.dv("add-node", "--kind", "constraint", "--id", "con-1", "--title", "t", "--body", "b",
+                "--applies", "src/**", "--forbid", "eval(", "--severity", "block")
+        self.dv("add-node", "--kind", "constraint", "--id", "con-1", "--title", "t", "--severity", "warn")
+        self.dv("add-node", "--kind", "constraint", "--id", "con-1", "--title", "t", "--severity", "warn")
+        import sqlite3
+        rows = sqlite3.connect(self.db).execute(
+            "SELECT meta FROM node_history WHERE node_id='con-1'").fetchall()
+        self.assertEqual(len(rows), 1)              # downgrade journaled once; identical re-add is not
+        self.assertIn("block", rows[0][0])          # the pre-downgrade meta is what's preserved
+
+    def test_guard_hot_path_never_imports_heavy_modules(self):
+        # Mirrors exactly what hooks/lib/guard_write.py + guard_bash.py touch. The devantlib
+        # split exists so this stays true as graph/drawio code grows (dec-016).
+        code = (
+            "from importlib.machinery import SourceFileLoader\n"
+            "from importlib.util import module_from_spec, spec_from_loader\n"
+            "import sys\n"
+            "spec = spec_from_loader('devant_mod', SourceFileLoader('devant_mod', %r))\n"
+            "dv = module_from_spec(spec)\n"
+            "spec.loader.exec_module(dv)\n"
+            "dv.project_dir; dv.rel_to_project; dv.ensure_schema\n"
+            "dv.evaluate_guard; dv.evaluate_bash\n"
+            "bad = [m for m in ('devantlib.intent', 'devantlib.drawio', 'devantlib.graphdb',\n"
+            "                   'devantlib.graphcmds', 'devantlib.cli') if m in sys.modules]\n"
+            "print(','.join(bad) or 'CLEAN')\n"
+        ) % BIN
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=self.env)
+        self.assertEqual(r.stdout.strip(), "CLEAN", r.stdout + r.stderr)
+
+
+class PhaseAndCompactGate(unittest.TestCase):
+    """Smart compaction scheduler (dec-018): `devant phase`, the PreCompact gate, and the
+    context monitor's math."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.proj = self.tmp.name
+        self.state = os.path.join(self.proj, ".devant", "state")
+        os.makedirs(self.state, exist_ok=True)
+        self.env = dict(os.environ, CLAUDE_PLUGIN_ROOT=ROOT,
+                        CLAUDE_PROJECT_DIR=self.proj, DEVANT_CODEGRAPH="off",
+                        CLAUDE_CODE_SESSION_ID="pc")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def dv(self, *args):
+        return subprocess.run([sys.executable, BIN, *args],
+                              capture_output=True, text=True, env=self.env)
+
+    def set_state(self, gate=None, pct=None, pct_age_min=0):
+        if gate is not None:
+            with open(os.path.join(self.state, "phase"), "w") as fh:
+                json.dump({"text": "building the sync engine", "gate": gate, "ts": "t"}, fh)
+        if pct is not None:
+            p = os.path.join(self.state, "context.pct")
+            with open(p, "w") as fh:
+                fh.write(str(pct))
+            if pct_age_min:
+                import time
+                old = time.time() - pct_age_min * 60
+                os.utime(p, (old, old))
+
+    def gate(self, trigger):
+        r = subprocess.run(["bash", os.path.join(ROOT, "hooks", "lib", "pre-compact.sh")],
+                           input=json.dumps({"cwd": self.proj, "session_id": "pc",
+                                             "trigger": trigger}),
+                           capture_output=True, text=True, env=self.env)
+        out = r.stdout.strip()
+        return json.loads(out)["decision"] if out else "allow"
+
+    def test_phase_set_get_roundtrip(self):
+        self.assertEqual(self.dv("phase", "--set", "designing", "--hold").stdout.strip(), "hold")
+        d = json.loads(self.dv("phase", "-j").stdout)
+        self.assertEqual((d["text"], d["gate"]), ("designing", "hold"))
+        self.assertEqual(self.dv("phase", "--set", "design-locked").stdout.strip(), "open")
+        self.assertEqual(json.loads(self.dv("phase", "-j").stdout)["gate"], "open")
+
+    def test_gate_defers_auto_compact_mid_phase(self):
+        self.set_state(gate="hold", pct=60)
+        self.assertEqual(self.gate("auto"), "block")
+
+    def test_gate_never_blocks_manual_or_boundary_or_high(self):
+        self.set_state(gate="hold", pct=60)
+        self.assertEqual(self.gate("manual"), "allow")     # user /compact always passes
+        self.set_state(gate="open", pct=60)
+        self.assertEqual(self.gate("auto"), "allow")       # phase boundary -> land it
+        self.set_state(gate="hold", pct=90)
+        self.assertEqual(self.gate("auto"), "allow")       # >=85: never veto near the limit
+
+    def test_gate_fails_open_without_fresh_signal(self):
+        self.set_state(gate="hold")                        # no pct file at all
+        self.assertEqual(self.gate("auto"), "allow")
+        self.set_state(gate="hold", pct=60, pct_age_min=10)  # stale signal
+        self.assertEqual(self.gate("auto"), "allow")
+
+    def test_gate_clears_primed_marker_on_both_paths(self):
+        primed = os.path.join(self.state, "pc.primed")
+        open(primed, "w").close()
+        self.gate("manual")
+        self.assertFalse(os.path.exists(primed))
+
+    def test_monitor_math(self):
+        from importlib.machinery import SourceFileLoader as SFL
+        from importlib.util import module_from_spec as MFS, spec_from_loader as SFLo
+        spec = SFLo("ctxmon", SFL("ctxmon", os.path.join(ROOT, "hooks", "lib", "context_monitor.py")))
+        mon = MFS(spec)
+        spec.loader.exec_module(mon)
+        self.assertEqual(mon.pct(300000, 500000), 60)
+        self.assertEqual(mon.pct(999999, 500000), 100)     # capped
+        t = os.path.join(self.proj, "t.jsonl")
+        with open(t, "w") as fh:
+            fh.write(json.dumps({"type": "user", "message": {"role": "user"}}) + "\n")
+            fh.write(json.dumps({"type": "assistant", "message": {"usage": {
+                "input_tokens": 1000, "cache_read_input_tokens": 2000,
+                "cache_creation_input_tokens": 500, "output_tokens": 50}}}) + "\n")
+            fh.write("not json\n")
+        self.assertEqual(mon.last_usage_tokens(t), 3500)
+        self.assertEqual(mon.zone(60, 50, "hold"), "pending")
+        self.assertEqual(mon.zone(60, 50, "open"), "low")
+        self.assertEqual(mon.zone(40, 50, "hold"), "low")
+        self.assertEqual(mon.zone(90, 50, "open"), "high")
 
 
 class DrawioLint(unittest.TestCase):

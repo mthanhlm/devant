@@ -1,0 +1,14 @@
+{
+  "symbols": [
+    {"qualname": "Store", "kind": "struct"},
+    {"qualname": "Store.Load", "kind": "function"},
+    {"qualname": "ReadConfig", "kind": "function"}
+  ],
+  "refs": [
+    {"src": "sample", "dst_name": "encoding/json", "kind": "imports"},
+    {"src": "sample", "dst_name": "os", "kind": "imports"},
+    {"src": "ReadConfig", "dst": "Store.Load", "kind": "calls"},
+    {"src": "Store.Load", "dst_name": "os.ReadFile", "kind": "calls"},
+    {"src": "Store.Load", "dst_name": "json.Unmarshal", "kind": "calls"}
+  ]
+}

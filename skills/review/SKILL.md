@@ -4,14 +4,15 @@ user-invocable: false
 context: fork
 agent: Explore
 effort: xhigh
-description: devant specialist (router/code-invoked) for an INDEPENDENT read-only sanity review of a HIGH-RISK change before it's declared done — auth/authz, data migrations, concurrency, security-sensitive paths, public APIs, architecture changes, or a wide codegraph blast radius. One narrow job — "does this change make sense and is it safe to merge?" — grounded in codegraph and the intent graph. Never edits. Not for low/medium-risk changes (the code skill self-checks those).
+allowed-tools: Bash(devant *)
+description: devant specialist (router/code-invoked): INDEPENDENT read-only sanity review of a HIGH-RISK change before done — auth, migrations, concurrency, security paths, public APIs, architecture, wide blast radius. Never edits.
 ---
 
 # devant: review
 
 A second pair of eyes on a high-risk change, in an isolated read-only context (the Explore agent —
 Write/Edit denied by Claude Code). You did not write this change; review it adversarially. The intent
-CLI is `python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant"`.
+CLI is `devant`.
 
 ## Scope
 Only high-risk changes (see this skill's description). If the change is low/medium risk, say so and

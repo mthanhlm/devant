@@ -1,24 +1,39 @@
 ---
 name: onboard
-user-invocable: false
+disable-model-invocation: true
 effort: high
+allowed-tools: Bash(devant *), Bash(codegraph *)
 description: One-time project onboarding — run codegraph init, scan the codebase to understand it, interview only the gaps a scan can't infer, and seed the local intent graph (vision, direction, non-goals, layering rules, conventions). Re-runnable to refresh. Target of /devant:onboard.
 ---
 
 # devant: onboard
 
 Scan first, then ask only what a scan can't know. One pass, one confirmation, no document
-explosion. The intent CLI is `python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant"` (`devant` below). Output
+explosion. The intent CLI is `devant` (on the Bash PATH while this plugin is enabled). Output
 goes only into the local intent graph — never commit anything.
 
 ## 1. Toolchain + init + scan (write only the index)
 - **Install the mandatory toolchain first** (dec-011). If `codegraph` is not on PATH:
-  `npm i -g @colbymchenry/codegraph` (user-space, no sudo; MIT). Also ensure the layout engine:
-  `node -e "require('elkjs')"` (with `NODE_PATH=$(npm root -g)`) — if it fails, `npm i -g elkjs`.
+  `npm i -g @colbymchenry/codegraph` (user-space, no sudo; MIT). Also ensure the layout engine
+  in the plugin's data dir (survives plugin updates, no global npm pollution):
+  `node -e "require('elkjs')"` (with `NODE_PATH="${CLAUDE_PLUGIN_DATA}/node_modules"`) — if it
+  fails: `mkdir -p "${CLAUDE_PLUGIN_DATA}" && cd "${CLAUDE_PLUGIN_DATA}" && npm i elkjs`.
   Verify with `codegraph --version`. If `npm` itself is missing, tell the user to install Node.js
   (e.g. via nvm: https://github.com/nvm-sh/nvm) and continue the onboarding degraded — don't block
   the interview on it.
 - `codegraph init -i` (builds/refreshes the local index for this repo).
+- **Native guard backstop (dec-019, opt-in):** offer — with explicit consent, never silently — to
+  seed the project's `.claude/settings.json` with
+  `permissions.deny: ["Bash(git commit*)", "Bash(git push*)", "Bash(git add*)", "Edit(.devant/**)"]`.
+  Explain the value: the native rules also cover the Monitor tool and Bash file-writes like
+  `sed -i` into `.devant/`, and they survive `DEVANT=off` (devant's own hooks are cooperative).
+  Declining is fine — the hook guard still enforces block rules.
+- **Smart compaction floor (dec-018, opt-in):** offer — with explicit consent, never silently — to
+  write `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` (default 50) and `CLAUDE_CODE_AUTO_COMPACT_WINDOW`
+  (default 500000) into the `env` block of `.claude/settings.local.json` (gitignored; NEVER the
+  shared settings.json). This lets long sessions auto-compact early; devant's PreCompact gate
+  then defers each compact to the next phase boundary. Declining costs nothing — the gate and
+  monitor still work at the harness's default threshold.
 - `codegraph_files` for layout; read manifests (package.json / pyproject.toml / go.mod / …) for
   the stack; `codegraph_explore` on entrypoints (main/index/app/server/cmd) to see how work
   flows. Derive candidate **modules** (id/path/role) and candidate **layer boundaries**.

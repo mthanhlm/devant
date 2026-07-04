@@ -2,13 +2,14 @@
 name: code
 user-invocable: false
 effort: high
-description: devant specialist (router-invoked) to make a verified code change — implement, fix, refactor, debug-and-fix, or complete unfinished work — grounded in codegraph and the intent graph, sized by blast radius, surgical, and verified for logic (not just compilation). Used for substantial changes; the router does trivial edits inline.
+allowed-tools: Bash(devant *), Bash(codegraph *)
+description: devant specialist (router-invoked): make a verified code change — implement, fix, refactor, debug — grounded in codegraph + intent, sized by blast radius, surgical, verified for logic. For substantial changes.
 ---
 
 # devant: code
 
 Own the change end to end: ground, change surgically, verify, record if a real decision emerged.
-The intent CLI is `python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant"` (`devant` below).
+The intent CLI is `devant` (on the Bash PATH while this plugin is enabled).
 
 ## 1. Ground & necessity
 Work the reuse ladder: does it need to exist? is it already here (`codegraph_search` — reuse,
@@ -64,3 +65,8 @@ architecture changes, or a wide codegraph blast radius — get an INDEPENDENT re
 If the change settled a genuine choice (or ruled one out), capture it:
 `devant decide --title "…" --body "<why>" [--rejected "…" --why-rejected "…"] [--realizes <goal>]`.
 Keep it one node. Do not write plan/spec/report markdown. Do not edit `.devant/` by hand.
+
+Phase gate (dec-018): when starting substantial work, run
+`devant phase --set "implementing: <what>" --hold` so auto-compact defers mid-flight;
+at each completed milestone run `devant phase --set "<milestone> done; next: <next>" --open`
+so the deferred compact lands at the boundary.

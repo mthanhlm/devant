@@ -339,7 +339,7 @@ Crossing or shape-piercing edges are what make a diagram look amateur. Keep them
 
 Don't rely on eyeballing coordinates in your head — that's how overlaps and crooked nodes ship.
 Let ELK place the nodes (`devant layout <file> --preset <p>`, SKILL steps 4/6b), then run the
-deterministic check: `python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant" drawio-lint <file> --fix`. It
+deterministic check: `devant drawio-lint <file> --fix`. It
 straightens off-grid nodes, spreads real overlaps, and **exits non-zero** while any blocking defect
 remains — unresolved overlaps, **label collisions** (a spilled label reaching a sibling, labels on
 labels, an edge label on a node — estimated Helvetica metrics), non-orthogonal edges, edges missing

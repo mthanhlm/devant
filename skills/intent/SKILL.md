@@ -2,13 +2,14 @@
 name: intent
 user-invocable: false
 effort: low
-description: devant specialist (router-invoked) to inspect or update the project's intent — vision, direction, decisions, constraints, non-goals — via the devant CLI. Use to record a decision (incl. a rejected alternative), add or retire a rule, lint the graph, or answer "why are we allowed to X" / "where are we headed".
+allowed-tools: Bash(devant *)
+disallowed-tools: Write, Edit, NotebookEdit
+description: devant specialist (router-invoked): inspect or update project intent — vision, direction, decisions, constraints, non-goals — via the devant CLI. Record decisions, add/retire rules, answer "why are we allowed to X".
 ---
 
 # devant: intent
 
-The voice of the project's direction and rules. The intent CLI is
-`python3 "${CLAUDE_PLUGIN_ROOT}/bin/devant"` (`devant` below).
+The voice of the project's direction and rules. The intent CLI is `devant` (on the Bash PATH while this plugin is enabled).
 
 ## Read
 - `devant summary` — vision + active block rules + direction.

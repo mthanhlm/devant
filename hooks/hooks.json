@@ -3,7 +3,7 @@
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/lib/session-start.sh\"", "timeout": 600 }
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/lib/session-start.sh\"", "timeout": 600, "statusMessage": "devant: loading project intent…" }
         ]
       }
     ],
@@ -16,21 +16,21 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/lib/pre-tool-write.sh\"" }
         ]
       },
       {
-        "matcher": "Bash",
+        "matcher": "Bash|Monitor",
         "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/lib/pre-tool-bash.sh\"" }
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/lib/pre-tool-bash.sh\"", "if": "Bash(git *)" }
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/lib/post-tool-write.sh\"" }
         ]
@@ -40,6 +40,13 @@
       {
         "hooks": [
           { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/lib/pre-compact.sh\"" }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/lib/task-completed.sh\"" }
         ]
       }
     ],
@@ -53,7 +60,7 @@
     "SubagentStop": [
       {
         "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/lib/stop.sh\"", "timeout": 120 }
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/lib/stop.sh\"", "timeout": 120, "async": true }
         ]
       }
     ]

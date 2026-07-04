@@ -2,6 +2,61 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.9.0] - 2026-07-04
+
+### Added
+- **devant-graph P0** (`dec-014`/`dec-016`): the foundation of the self-owned code+intent graph
+  replacing codegraph. One logical graph, two physical stores — `intent.db` untouched (zero
+  migration) + new `.devant/index.db` (derived, rebuildable; `auto_vacuum=INCREMENTAL` at
+  creation, WAL, FTS5 search index maintained by triggers with a LIKE fallback). Full fixed CLI
+  contract: `devant graph sync|status|search|explore|callers|callees|impact|affected|annotate` —
+  sync is git-ls-files-scoped, sha256-incremental with orphan GC + wal_checkpoint; explore
+  verifies file hashes before serving stored line ranges; search/impact join intent nodes
+  (ATTACH) so blast radius surfaces the constraints/decisions governing a symbol. Benchmark
+  fixtures + thresholds checked in as the P1 cutover gate. `bin/devant` split into a thin entry
+  (PEP 562 lazy re-export) + `bin/devantlib/` package with lazy per-subcommand imports — the
+  Write/Edit guard hot path now loads only `common`+`guard` (~6ms), proven by a sys.modules test.
+- **Intent node history**: in-place edits journal the old row to `node_history` (title, body,
+  meta, status — a block→warn downgrade leaves an audit trail) and stamp `updated`.
+- **Smart compaction scheduler** (`dec-018`): `devant phase --set … --open|--hold` records the
+  project phase + compaction gate; the PreCompact hook defers proactive auto-compacts mid-phase
+  and lands them at phase boundaries (manual `/compact` never blocked; fail-open without a fresh
+  signal or at ≥85%); a native plugin background monitor polls the session transcript, writes
+  `.devant/state/context.pct`, and notifies only on zone transitions; SessionStart re-hydrates
+  the intent brief + phase after every compact. `userConfig`: smart_compact, compact_floor_pct,
+  context_window_tokens.
+- **TaskCompleted gate** (`dec-019`): a task cannot be marked complete while files touched this
+  session still carry unfinished markers (TODO/FIXME/stub) — exit-2 hook, fail-open.
+- **`devant phase`** subcommand, `architecture-devant-graph.drawio` (the approved P0 design),
+  bench fixtures (`tests/fixtures/bench/`), and a "Developing devant" README section
+  (`--plugin-dir`, `/reload-plugins --force`, `--init-only --debug hooks`).
+
+### Changed (nativization, `dec-019`)
+- Skills call the CLI as bare **`devant`** (plugin `bin/` is on the Bash PATH) with
+  `allowed-tools: Bash(devant *)` — no more per-call permission prompts.
+- The Stop-hook note (impacted tests, unfinished markers, dangling links) is delivered natively
+  via `additionalContext` **in the same turn** (was a `.lastturn` file replayed next prompt);
+  `stop_hook_active` loop guard added.
+- Hooks prefer the guaranteed `CLAUDE_PROJECT_DIR`/`CLAUDE_CODE_SESSION_ID` env (JSON parse kept
+  as fallback); git-guard hook only spawns for git commands (`"if": "Bash(git *)"`); SubagentStop
+  sync runs async; `NotebookEdit` and `Monitor` added to guard/tracking matchers.
+- Warn-severity intent rules inform via PreToolUse `additionalContext` instead of a modal ask;
+  architect/intent are read-only by mechanism (`disallowed-tools`).
+- devant no longer writes `autoCompactEnabled` into the user's global settings (Claude Code
+  defaults it to true; a warning fires only if `DISABLE_AUTO_COMPACT` is set).
+- `commands/onboard.md` wrapper removed (the skill itself is `/devant:onboard`,
+  `disable-model-invocation: true`); elkjs now installs into `${CLAUDE_PLUGIN_DATA}` instead of
+  `npm -g`; hook bytecode goes to `PYTHONPYCACHEPREFIX`; plugin.json gains
+  `$schema`/`repository`/`license` + required `userConfig` titles; specialist descriptions
+  trimmed for the shared skill-metadata budget.
+
+### Fixed
+- `evaluate_bash` false positive: a quoted pipe (`grep "a\|b"`) was split into an
+  unbalanced-quote segment and denied — segments are now split quote-aware.
+- Context monitor no longer guesses the transcript by newest-mtime (wrong session when two run
+  in one repo); SessionStart persists this session's `transcript_path` + `model`.
+- Parallel `add-node` no longer loses writes when racing the new `updated`-column ALTER.
+
 ## [0.8.0] - 2026-07-04
 
 ### Added

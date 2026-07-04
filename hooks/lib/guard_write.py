@@ -40,7 +40,7 @@ def main():
     if content is None:
         content = "\n".join(e.get("new_string", "") for e in (ti.get("edits") or []))
     content = content or ""
-    fp = ti.get("file_path") or ""
+    fp = ti.get("file_path") or ti.get("notebook_path") or ""
     if not fp:
         return 0
     cwd = d.get("cwd") or ""
@@ -69,6 +69,14 @@ def main():
             "hookEventName": "PreToolUse",
             "permissionDecision": decision,
             "permissionDecisionReason": reason,
+        }}))
+    elif decision == "warn":
+        # Inform Claude without a modal prompt: the write proceeds, the rule text lands
+        # as context next to the tool result (dec-019).
+        print(json.dumps({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "additionalContext": "[devant] warn rule: " + reason,
         }}))
     return 0
 

@@ -7,18 +7,27 @@ LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$LIB/common.sh"
 
 INPUT="$(cat)"
-CWD="$(printf '%s' "$INPUT" | json_field cwd)"
-PROJ="$(dv_project_dir "$CWD")"
 dv_enabled || exit 0
+PROJ="$(dv_proj_from "$INPUT")"
 mkdir -p "$PROJ/.devant" 2>/dev/null
 dv_ensure_local_ignore "$PROJ"
 
+# autoCompactEnabled defaults to true since Claude Code v2.1.119 — devant no longer
+# touches the user's global settings; it only warns when auto-compact is disabled,
+# because the smart-compaction scheduler (dec-018) depends on it.
 SYSMSG=""
-[ "$(dv_ensure_global_autocompact)" = "set" ] && SYSMSG="[devant] Enabled autoCompactEnabled in ~/.claude/settings.json (one-time, global) so long sessions auto-compact instead of hitting the context limit. Edit that file to turn it back off."
+[ -n "${DISABLE_AUTO_COMPACT:-}" ] && SYSMSG="[devant] DISABLE_AUTO_COMPACT is set — smart compaction (dec-018) can't schedule anything; long sessions will hit the context limit."
 
 # Hygiene: drop per-session state from long-gone sessions and cap the usage log.
 STATE="$(dv_state_dir "$PROJ")"
 find "$STATE" -maxdepth 1 -type f \( -name '*.primed' -o -name '*.dangled' -o -name '*.lastturn' -o -name '*.touched' \) -mtime +7 -delete 2>/dev/null
+
+# Persist what the context monitor can't discover on its own: this session's transcript
+# path (fixes the two-sessions-one-repo mixup) and the model (window-size fallback).
+TP="$(printf '%s' "$INPUT" | json_field transcript_path)"
+[ -n "$TP" ] && printf '%s' "$TP" > "$STATE/transcript.path" 2>/dev/null
+MODEL="$(printf '%s' "$INPUT" | json_field model)"
+[ -n "$MODEL" ] && printf '%s' "$MODEL" > "$STATE/model" 2>/dev/null
 if [ -s "$STATE/usage.log" ] && [ "$(wc -l < "$STATE/usage.log" 2>/dev/null)" -gt 5000 ]; then
   tail -n 1000 "$STATE/usage.log" > "$STATE/usage.log.new" 2>/dev/null && mv "$STATE/usage.log.new" "$STATE/usage.log"
 fi
@@ -48,6 +57,14 @@ $SUMMARY"
 else
   CTX="$CTX
 [devant] No project intent captured yet — run /devant:onboard to scan this repo and capture its vision, direction, non-goals, and rules. Until then I answer from codegraph alone."
+fi
+
+# Phase re-hydration (dec-018): after a compact (or resume) the conversation summary may
+# drop where we are — the phase file is the durable answer, so inject it for all sources.
+if [ -f "$STATE/phase" ]; then
+  PHASE="$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print('[devant] Phase: [%s] %s' % (d.get('gate','open'), d.get('text','')))" "$STATE/phase" 2>/dev/null)"
+  [ -n "$PHASE" ] && CTX="$CTX
+$PHASE"
 fi
 
 printf '%s' "$CTX" | dv_emit SessionStart "$SYSMSG"

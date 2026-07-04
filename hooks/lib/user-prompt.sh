@@ -1,26 +1,20 @@
 #!/usr/bin/env bash
-# UserPromptSubmit: carry forward last turn's note, and on a code-intent prompt
-# inject the lean discipline (ladder, blast-radius sizing, push-back,
-# verification bar, grounded-or-flagged + private-rationale norms) plus the
-# recorded do/don'ts for the touched area. The heavy block is injected once per
-# session (NM7 dedupe); the area rules are injected every relevant turn.
+# UserPromptSubmit: on a code-intent prompt inject the lean discipline (ladder,
+# blast-radius sizing, push-back, verification bar, grounded-or-flagged +
+# private-rationale norms) plus the recorded do/don'ts for the touched area. The
+# heavy block is injected once per session (NM7 dedupe); the area rules are
+# injected every relevant turn. (The last-turn note is now delivered natively by
+# the Stop hook in the same turn — no carry-forward here.)
 # Soft (context only) — never blocks. Exits 0.
 LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$LIB/common.sh"
 
 INPUT="$(cat)"
-PROMPT="$(printf '%s' "$INPUT" | json_field prompt)"
-CWD="$(printf '%s' "$INPUT" | json_field cwd)"
-SID="$(dv_sid "$(printf '%s' "$INPUT" | json_field session_id)")"
-PROJ="$(dv_project_dir "$CWD")"
 dv_enabled || exit 0
+PROMPT="$(printf '%s' "$INPUT" | json_field prompt)"
+SID="$(dv_sid_from "$INPUT")"
+PROJ="$(dv_proj_from "$INPUT")"
 STATE="$(dv_state_dir "$PROJ")"
-
-CARRY=""
-if [ -n "$SID" ] && [ -s "$STATE/$SID.lastturn" ]; then
-  CARRY="$(cat "$STATE/$SID.lastturn" 2>/dev/null)"
-  rm -f "$STATE/$SID.lastturn" 2>/dev/null
-fi
 
 CTX=""
 # Inject change-discipline only when there's a change verb AND the prompt isn't an
@@ -50,13 +44,6 @@ if [ "$INFO_LEAD" = "0" ] && printf '%s' "$PROMPT" | grep -qiE '\b(implement|add
 }[devant] Recorded do/don'ts for this area (block rules are enforced by the edit guard):
 $RULES"
   fi
-fi
-
-if [ -n "$CARRY" ]; then
-  CTX="[devant] Since your last turn:
-$CARRY${CTX:+
-
-$CTX}"
 fi
 
 [ -z "$CTX" ] && exit 0

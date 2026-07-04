@@ -50,6 +50,14 @@ Diagrams need no other tool: node placement is real ELK (`devant layout`, elkjs 
 delivery gate is `devant drawio-lint --fix` — geometry auto-fix plus label-collision detection with
 estimated font metrics. The draw.io desktop CLI is **not** used (dec-012 dropped it).
 
+## Developing devant
+
+- Iterate without reinstalling: `claude --plugin-dir ~/lam/devant` loads the working tree as the plugin for that session; `/reload-plugins --force` applies hook/manifest edits mid-session, `/reload-skills` re-scans skill edits.
+- Smoke the SessionStart wiring headlessly: `claude --init-only --debug "hooks"`.
+- Release gate: `claude plugin validate . --strict` must pass before every release.
+
+Note: the context monitor (smart compaction, dec-018) is a plugin background monitor — it runs only in interactive CLI sessions, does not load for project-scope plugin installs, and is skipped when `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` is set. The PreCompact gate fails open without it.
+
 ## Notes
 
 - `.devant/` (the intent graph + local state) and `.codegraph/` are added to `.git/info/exclude`
