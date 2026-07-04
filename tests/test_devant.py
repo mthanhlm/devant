@@ -965,8 +965,9 @@ class DrawioLint(unittest.TestCase):
             fh.write(xml)
         return p
 
-    def lint(self, path, fix=False):
-        args = [sys.executable, BIN, "drawio-lint", path] + (["--fix"] if fix else [])
+    def lint(self, path, fix=False, score=False):
+        args = ([sys.executable, BIN, "drawio-lint", path]
+                + (["--fix"] if fix else []) + (["--score"] if score else []))
         return subprocess.run(args, capture_output=True, text=True)
 
     def _model(self, cells):
@@ -1056,6 +1057,109 @@ class DrawioLint(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
         self.assertIn("labels colliding", r.stdout)
         self.assertIn("e->c", r.stdout)
+
+    def wp_edge(self, i, src, tgt, points):
+        pts = "".join('<mxPoint x="%s" y="%s" />' % p for p in points)
+        return ('<mxCell id="%s" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" '
+                'parent="1" source="%s" target="%s"><mxGeometry relative="1" as="geometry">'
+                '<Array as="points">%s</Array></mxGeometry></mxCell>' % (i, src, tgt, pts))
+
+    def test_waypointed_edge_through_bystander_warns_not_blocks(self):
+        # a->b hand-routed straight through bystander c: a warning, never a gate failure
+        cells = (self.vertex("a", 100, 100) + self.vertex("b", 100, 500)
+                 + self.vertex("c", 100, 300) + self.wp_edge("e", "a", "b", [(180, 335)]))
+        r = self.lint(self.write(self._model(cells)))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("routes through", r.stdout)
+        self.assertIn("e->c", r.stdout)
+
+    def test_crossing_waypointed_edges_warn_and_score(self):
+        # two hand-routed edges form an X between four corner nodes
+        cells = (self.vertex("n1", 100, 100) + self.vertex("n2", 500, 100)
+                 + self.vertex("n3", 100, 300) + self.vertex("n4", 500, 300)
+                 + self.wp_edge("e1", "n1", "n4", [(340, 200)])
+                 + self.wp_edge("e2", "n3", "n2", [(340, 270)]))
+        r = self.lint(self.write(self._model(cells)), score=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("edges cross", r.stdout)
+        self.assertIn("e1<->e2", r.stdout)
+        self.assertIn("score: 10", r.stdout)                              # one crossing = 10
+
+    def test_autorouted_edge_never_gets_routing_warnings(self):
+        # same a-over-c-to-b geometry but NO waypoints: the path isn't stored, so no guessing
+        edge = ('<mxCell id="e" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" '
+                'parent="1" source="a" target="b"><mxGeometry relative="1" as="geometry" /></mxCell>')
+        cells = (self.vertex("a", 100, 100) + self.vertex("b", 100, 500)
+                 + self.vertex("c", 100, 300) + edge)
+        r = self.lint(self.write(self._model(cells)), score=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("routes through", r.stdout)
+        self.assertIn("score: 0", r.stdout)
+
+
+class DrawioPreview(unittest.TestCase):
+    """dec-022 pure parts: the viewer-URL encoder must round-trip exactly (the viewer raw-inflates
+    then decodeURIComponents), and browser resolution prefers the onboard-installed shell."""
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, os.path.join(ROOT, "bin"))
+        from devantlib import drawio
+        cls.drawio = drawio
+
+    def test_viewer_url_roundtrips_percent_and_unicode(self):
+        import base64
+        import urllib.parse
+        import zlib
+        xml = '<mxfile><diagram name="t" id="t">giá 100% &amp; ổn</diagram></mxfile>'
+        url = self.drawio._viewer_url(xml)
+        self.assertTrue(url.startswith("https://viewer.diagrams.net/"))
+        payload = urllib.parse.unquote(url.split("#R", 1)[1])
+        inflated = zlib.decompress(base64.b64decode(payload), -zlib.MAX_WBITS).decode("utf-8")
+        self.assertEqual(urllib.parse.unquote(inflated), xml)
+
+    def _with_plugin_data(self, td):
+        prev = os.environ.get("CLAUDE_PLUGIN_DATA")
+        os.environ["CLAUDE_PLUGIN_DATA"] = td
+        try:
+            return self.drawio._find_browser()
+        finally:
+            if prev is None:
+                del os.environ["CLAUDE_PLUGIN_DATA"]
+            else:
+                os.environ["CLAUDE_PLUGIN_DATA"] = prev
+
+    def test_find_browser_resolves_plugin_shell(self):
+        with tempfile.TemporaryDirectory() as td:
+            shell = os.path.join(td, "browsers", "chrome-headless-shell", "linux-1.0",
+                                 "chrome-headless-shell-linux64", "chrome-headless-shell")
+            os.makedirs(os.path.dirname(shell))
+            with open(shell, "w") as fh:
+                fh.write("#!/bin/sh\n")
+            os.chmod(shell, 0o755)
+            self.assertEqual(self._with_plugin_data(td), shell)
+
+    def test_find_browser_never_falls_back_to_system_or_exe(self):
+        # dec-023: empty plugin data => None, even on a box where system Chrome or the WSL
+        # Windows chrome.exe/msedge.exe exist — those are never consulted.
+        with tempfile.TemporaryDirectory() as td:
+            self.assertIsNone(self._with_plugin_data(td))
+
+    def test_preview_without_shell_points_at_onboard(self):
+        with tempfile.TemporaryDirectory() as td:
+            fixture = os.path.join(td, "d.drawio")
+            with open(fixture, "w") as fh:
+                fh.write("<mxfile />")
+            env = dict(os.environ, CLAUDE_PLUGIN_DATA=td)
+            r = subprocess.run([sys.executable, BIN, "drawio-preview", fixture],
+                               capture_output=True, text=True, env=env)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("onboard", r.stderr)
+
+    def test_preview_missing_file_fails_honestly(self):
+        r = subprocess.run([sys.executable, BIN, "drawio-preview", "/nonexistent/x.drawio"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("cannot read", r.stderr)
 
 
 def _layout_toolchain_ok():

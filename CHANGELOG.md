@@ -2,6 +2,34 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.12.0] - 2026-07-04
+
+### Added
+- **`devant drawio-preview <file> [-o out.png]` (dec-022/dec-023)**: renders a diagram to PNG
+  for the visual self-check — stdlib builds a viewer.diagrams.net URL (the XML travels in the
+  `#fragment`, never uploaded to any server) and the plugin-installed chrome-headless-shell
+  screenshots it at 2000 px. Resolves ONLY the shell in `${CLAUDE_PLUGIN_DATA}/browsers`
+  (dec-023) — system Chrome/Edge and the WSL-side `.exe`s are never consulted; when the shell
+  is missing it prints the exact install fix and exits 1.
+- **Onboard installs the preview renderer**: `npx --yes @puppeteer/browsers install
+  chrome-headless-shell@stable` into the plugin data dir when missing (~150MB, no sudo) —
+  users never install a browser by hand.
+- **`drawio-lint` edge-routing warnings + `--score` (dec-021)**: edges with explicit waypoints
+  are checked for routing through a bystander node and for edge-edge crossings — warnings,
+  never blocking (auto-routed edges are exempt: their path isn't stored, so checking them
+  would guess; adapted from Agents365-ai/drawio-skill, MIT). `--score` prints
+  `20·through + 10·cross + 5·overlap` (lower is better) for comparing layout variants.
+
+### Changed
+- **The diagram done-path gains a mandatory visual pass (dec-022/dec-023)**: after
+  `drawio-lint` exits 0, render the preview, read the PNG with vision, fix perceptual defects
+  the geometry can't measure, re-layout/lint/preview — loop max 3 rounds. If the preview
+  cannot run (shell not installed, offline) the skill reports the blocker explicitly instead
+  of delivering silently.
+- Guide: `devant drawio-preview` documented as the sanctioned PNG path, plus recorded vision
+  traps (2576×2576 px vision ceiling; drawio CLI `-e` IEND truncation; `--no-sandbox` must be
+  the last argument); edge-label placement rules referenced by the new lint warnings.
+
 ## [0.11.0] - 2026-07-04
 
 ### Changed

@@ -39,7 +39,8 @@ The intent CLI is `devant`.
    `radialTree` (hub-and-spoke), `organic` (many-edge networks). If node/elkjs is missing the
    command says exactly what to install (elkjs into `${CLAUDE_PLUGIN_DATA}`) — pass that on, and ship the
    hand-placed XML meanwhile. **No draw.io desktop CLI and no MCP are used — ever** (dec-012
-   dropped them; elkjs + the linter replace them).
+   dropped them; elkjs + the linter replace them; the visual pass in step 6d is headless
+   Chrome, dec-022 — not the CLI).
 5. **Write the file** to the target repo (create the dir if missing):
    - Architecture → `docs/diagrams/architecture-<name>.drawio`
    - Activity flow → `docs/diagrams/activity-<flow-name>.drawio`
@@ -64,10 +65,20 @@ The intent CLI is `devant`.
      (shorten or `whiteSpace=wrap` the label, widen the node, move the label along its edge, add
      `edgeStyle=orthogonalEdgeStyle`, give the edge its child geometry, dedupe the id) and
      **re-run until it exits 0.** This is real mechanical cleanup, not a report.
+   - **(d) The visual pass — MANDATORY (dec-022/dec-023).** Run
+     `devant drawio-preview <file>` (the onboard-installed chrome-headless-shell renders the real
+     diagram; needs network for the viewer JS — the XML never leaves the machine), then **Read the
+     PNG with vision** and fix what geometry can't measure — visual clutter, a confusing flow
+     shape, unreadable contrast — re-running layout → lint → preview after each fix. **Loop max
+     3 rounds**, then deliver. If the command fails (shell not installed, offline), do **not**
+     deliver silently: report the blocker and its fix (`/devant:onboard` installs the shell) and
+     let the user decide whether to accept the diagram without the visual gate. Delete the
+     `.preview.png` before finishing unless the user asked for it.
 
-   **Done = well-formed AND laid out AND `drawio-lint` exits 0.** Then tell the user it opens in
-   draw.io / diagrams.net (or the VS Code Draw.io Integration extension) — if they want a PNG/SVG,
-   those apps export it; devant doesn't drive an export.
+   **Done = well-formed AND laid out AND `drawio-lint` exits 0 AND the visual pass ran** (or its
+   blocker was explicitly reported and accepted). Then tell the user it opens in draw.io /
+   diagrams.net (or the VS Code Draw.io Integration extension) — for a shareable PNG they can
+   keep, `devant drawio-preview <file> -o <out.png>` renders one on demand.
 
 Keep to the two kinds and the one style system. This skill draws; it does not design the
 architecture (that's `devant:architect`) or edit code.

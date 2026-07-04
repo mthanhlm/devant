@@ -344,8 +344,18 @@ straightens off-grid nodes, spreads real overlaps, and **exits non-zero** while 
 remains — unresolved overlaps, **label collisions** (a spilled label reaching a sibling, labels on
 labels, an edge label on a node — estimated Helvetica metrics), non-orthogonal edges, edges missing
 geometry, duplicate ids, off-canvas cells — which you then fix by hand and re-run until it's clean
-(SKILL step 6c). Still place labels with the §5 rules above (white background, offset, waypoints)
+(SKILL step 6c). Hand-routed edges (explicit `<Array as="points">` waypoints) additionally get
+non-blocking **warnings** when they route through a bystander node or cross each other, and
+`--score` prints a readability score (lower is better) for comparing layout variants of the same
+graph. Still place labels with the §5 rules above (white background, offset, waypoints)
 as you author — the linter estimates text extents; it doesn't excuse sloppy authoring.
+
+The sanctioned PNG path for vision review is `devant drawio-preview` (plugin-installed
+chrome-headless-shell, dec-022/dec-023 — it already renders at 2000 px). Recorded traps if any
+other PNG ever appears: Claude vision rejects images larger than **2576×2576 px**; the draw.io
+CLI's `-e`/embed PNGs carry a **truncated IEND chunk** that vision APIs reject with HTTP 400
+(preview without `-e`); and on Linux **`--no-sandbox` must be the last drawio argument** — placed
+earlier it's parsed as the input filename.
 
 ## 6. Checklist before saving
 - Every box/step maps to something real in codegraph — no invented components.

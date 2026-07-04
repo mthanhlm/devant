@@ -1,5 +1,7 @@
 """drawio-lint (geometry + label-collision gate) and ELK layout via elkjs. Heavy imports
 (xml.etree, html) live here so the guard/intent paths never pay for them."""
+import base64
+import glob
 import html
 import json
 import os
@@ -7,7 +9,9 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
 import xml.etree.ElementTree as ET
+import zlib
 
 from .common import LAYOUT_PRESETS  # noqa: F401 — re-exported for the CLI's choices
 
@@ -116,6 +120,30 @@ def _spills(rect, box):
     x, y, w, h = rect
     return (x < box.x - 2 or y < box.y - 2
             or x + w > box.x + box.w + 2 or y + h > box.y + box.h + 2)
+
+
+def _seg_cross(p1, p2, p3, p4):
+    """True when segments p1p2 and p3p4 properly cross (interior intersection). Collinear
+    overlap and shared endpoints don't count, so edges meeting at a common node aren't flagged."""
+    def orient(a, b, c):
+        v = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+        return 0 if abs(v) < 1e-9 else (1 if v > 0 else -1)
+    o1, o2 = orient(p1, p2, p3), orient(p1, p2, p4)
+    o3, o4 = orient(p3, p4, p1), orient(p3, p4, p2)
+    return o1 != o2 and o3 != o4 and 0 not in (o1, o2, o3, o4)
+
+
+def _route_hits_box(pts, box):
+    """True when polyline pts enters the box's interior or crosses its border."""
+    x, y, w, h = box
+    corners = [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
+    borders = list(zip(corners, corners[1:] + corners[:1]))
+    for a, b in zip(pts, pts[1:]):
+        if any(x + 1e-6 < p[0] < x + w - 1e-6 and y + 1e-6 < p[1] < y + h - 1e-6 for p in (a, b)):
+            return True
+        if any(_seg_cross(a, b, c, d) for c, d in borders):
+            return True
+    return False
 
 
 def cmd_drawio_lint(args):
@@ -281,6 +309,60 @@ def cmd_drawio_lint(args):
         if c.find("mxGeometry") is None:
             no_geo.append(c.get("id"))
 
+    # Edge-routing checks — only for edges carrying explicit <Array as="points"> waypoints: an
+    # auto-routed edge stores no path (draw.io computes it at render time), so checking it would
+    # guess. Warnings, never blocking: waypoints are rare hand-routing, and `devant layout` drops
+    # them anyway so draw.io re-routes.
+    def abs_box(b):
+        x, y, pid, seen = b.x, b.y, b.parent, set()
+        while pid in vmap and pid not in seen:
+            seen.add(pid)
+            p = vmap[pid]
+            x, y, pid = x + p.x, y + p.y, p.parent
+        return (x, y, b.w, b.h)
+
+    routed = []  # (edge_id, absolute polyline, {source_id, target_id})
+    for c in cells:
+        if c.get("edge") != "1":
+            continue
+        geo = c.find("mxGeometry")
+        arr = next((a for a in geo.findall("Array") if a.get("as") == "points"),
+                   None) if geo is not None else None
+        if arr is None:
+            continue
+        wpts = []
+        for pt in arr.findall("mxPoint"):
+            try:
+                wpts.append((float(pt.get("x", "0") or 0), float(pt.get("y", "0") or 0)))
+            except (TypeError, ValueError):
+                pass
+        src, tgt = vmap.get(c.get("source")), vmap.get(c.get("target"))
+        if not wpts or src is None or tgt is None:
+            continue
+        st = _drawio_style(c.get("style"))
+        ends = []
+        for b, kx, ky in ((src, "exitX", "exitY"), (tgt, "entryX", "entryY")):
+            bx, by, bw, bh = abs_box(b)
+            try:
+                fx, fy = float(st.get(kx, 0.5)), float(st.get(ky, 0.5))
+            except (TypeError, ValueError):
+                fx = fy = 0.5
+            ends.append((bx + fx * bw, by + fy * bh))
+        routed.append((c.get("id"), [ends[0]] + wpts + [ends[1]],
+                       {c.get("source"), c.get("target")}))
+
+    through, crossings = [], []
+    for eid, pts, ends in routed:
+        for b in boxes:  # leaves only — a route legitimately traverses containers
+            if b.cell.get("id") not in ends and _route_hits_box(pts, abs_box(b)):
+                through.append("%s->%s" % (eid, b.cell.get("id")))
+    for i in range(len(routed)):
+        for j in range(i + 1, len(routed)):
+            if any(_seg_cross(a1, a2, b1, b2)
+                   for a1, a2 in zip(routed[i][1], routed[i][1][1:])
+                   for b1, b2 in zip(routed[j][1], routed[j][1][1:])):
+                crossings.append("%s<->%s" % (routed[i][0], routed[j][0]))
+
     if fixing and any(b.moved for b in boxes):
         def num(v):
             return str(int(v)) if float(v).is_integer() else str(v)
@@ -314,9 +396,81 @@ def cmd_drawio_lint(args):
             print("%s: %s" % (label, ", ".join(str(i) for i in items)))
     if not fixing and off_grid:
         print("off-grid nodes (cosmetic; run --fix to straighten): %s" % ", ".join(off_grid))
+    for label, items in [
+        ("edge routes through a node (warning; move the waypoint to go around it)", through),
+        ("edges cross (warning; reroute, or mark with jumpStyle=arc;jumpSize=10)", crossings),
+    ]:
+        if items:
+            print("%s: %s" % (label, ", ".join(items)))
+    if getattr(args, "score", False):
+        print("score: %d (20*through + 10*cross + 5*overlap; lower is better)"
+              % (20 * len(through) + 10 * len(crossings) + 5 * len(unresolved)))
     if not blocking:
         print("%s: clean." % os.path.basename(path))
     return 1 if blocking else 0
+
+
+# ------------------------------------------------------ preview (headless chrome)
+
+VIEWER_PREFIX = "https://viewer.diagrams.net/?tags=%7B%7D&lightbox=1&edit=_blank#R"
+
+
+def _viewer_url(xml):
+    """diagrams.net viewer URL carrying the XML in the #fragment (never sent to the server).
+    The viewer runs JS decodeURIComponent AFTER inflate, so the XML must be percent-encoded
+    (encodeURIComponent semantics) BEFORE raw-deflate — otherwise a literal '%' or non-ASCII
+    label breaks the loader with 'URI malformed'."""
+    pre = urllib.parse.quote(xml, safe="!~*'()")
+    c = zlib.compressobj(9, zlib.DEFLATED, -zlib.MAX_WBITS)
+    payload = base64.b64encode(c.compress(pre.encode("utf-8")) + c.flush()).decode("ascii")
+    return VIEWER_PREFIX + urllib.parse.quote(payload, safe="")
+
+
+def _find_browser():
+    """Path of the onboard-installed chrome-headless-shell in the plugin data dir, or None.
+    Deliberately the ONLY renderer (dec-023): one deterministic binary, one behavior, on every
+    platform — system Chrome/Edge (including Windows .exe from WSL) is never consulted."""
+    data = os.environ.get("CLAUDE_PLUGIN_DATA")
+    if not data:
+        return None
+    hits = sorted(glob.glob(os.path.join(
+        data, "browsers", "chrome-headless-shell", "*", "*", "chrome-headless-shell*")))
+    hits = [h for h in hits if os.access(h, os.X_OK) and not h.endswith(".txt")]
+    return hits[-1] if hits else None
+
+
+def cmd_drawio_preview(args):
+    """Render a .drawio to PNG for the mandatory visual self-check (dec-022/dec-023): stdlib
+    builds a diagrams.net viewer URL, the plugin-installed chrome-headless-shell screenshots it."""
+    path = args.file
+    try:
+        with open(path, encoding="utf-8") as fh:
+            xml = fh.read()
+    except OSError as exc:
+        sys.stderr.write("devant: cannot read %s: %s\n" % (path, exc))
+        return 1
+    browser = _find_browser()
+    if not browser:
+        sys.stderr.write(
+            "devant: chrome-headless-shell not installed — run /devant:onboard, or:\n"
+            "  npx --yes @puppeteer/browsers install chrome-headless-shell@stable "
+            "--path \"$CLAUDE_PLUGIN_DATA/browsers\"\n")
+        return 1
+    out = args.out or (os.path.splitext(path)[0] + ".preview.png")
+    cmd = [browser, "--disable-gpu", "--window-size=2000,1400", "--virtual-time-budget=15000",
+           "--screenshot=%s" % out, _viewer_url(xml)]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        sys.stderr.write("devant: preview render failed: %s\n" % exc)
+        return 1
+    if not os.path.isfile(out) or os.path.getsize(out) == 0:
+        sys.stderr.write("devant: browser wrote no screenshot (offline? viewer JS needs "
+                         "network)%s\n" % ((": " + proc.stderr.strip()[-300:]) if proc.stderr else ""))
+        return 1
+    print("%s (render fetches viewer JS from diagrams.net; the diagram XML stays in the "
+          "URL fragment — never uploaded)" % out)
+    return 0
 
 
 # ------------------------------------------------------------ layout (elkjs)

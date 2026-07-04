@@ -18,6 +18,14 @@ goes only into the local intent graph — never commit anything.
   `node -e "require('elkjs')"` (with `NODE_PATH="${CLAUDE_PLUGIN_DATA}/node_modules"`) — if it
   fails: `mkdir -p "${CLAUDE_PLUGIN_DATA}" && cd "${CLAUDE_PLUGIN_DATA}" && npm i elkjs`. If npm
   is missing, continue degraded — diagrams still ship hand-laid-out.
+- **Preview renderer (diagrams, required for the visual gate, dec-022/dec-023):** ensure
+  chrome-headless-shell in the plugin's data dir — the ONLY renderer `devant drawio-preview`
+  uses (system Chrome/Edge is never consulted). If
+  `ls "${CLAUDE_PLUGIN_DATA}/browsers/chrome-headless-shell" 2>/dev/null` is empty:
+  `npx --yes @puppeteer/browsers install chrome-headless-shell@stable --path "${CLAUDE_PLUGIN_DATA}/browsers"`
+  (~150MB into the plugin data dir, no sudo — tell the user what's downloading and why). If npx
+  is missing, continue and say so: the diagram skill's mandatory visual pass will report this as
+  a blocker until onboard is re-run with Node present.
 - `devant graph sync` (builds/refreshes the self-owned index — no external tool, dec-016).
 - **Native guard backstop (dec-019, default-on):** seed the project's `.claude/settings.json` with
   `permissions.deny: ["Bash(git commit*)", "Bash(git push*)", "Bash(git add*)",

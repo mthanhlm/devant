@@ -114,6 +114,8 @@ def build_parser():
     dl = sub.add_parser("drawio-lint", help="check/auto-fix a .drawio for grid/overlap/edge/label defects")
     dl.add_argument("file")
     dl.add_argument("--fix", action="store_true", help="grid-snap + spread overlaps in place")
+    dl.add_argument("--score", action="store_true",
+                    help="print a readability score (lower is better) for comparing layout variants")
     dl.set_defaults(_mod="drawio", _func="cmd_drawio_lint")
 
     ly = sub.add_parser("layout", help="auto-layout a .drawio with real ELK (elkjs via node)")
@@ -121,6 +123,13 @@ def build_parser():
     ly.add_argument("--preset", default="verticalFlow", choices=LAYOUT_PRESETS,
                     help="ELK algorithm preset (default: verticalFlow)")
     ly.set_defaults(_mod="drawio", _func="cmd_layout")
+
+    dp = sub.add_parser("drawio-preview",
+                        help="render a .drawio to PNG via headless Chrome for a visual check "
+                             "(needs network for the viewer JS)")
+    dp.add_argument("file")
+    dp.add_argument("-o", "--out", help="output PNG path (default: <file>.preview.png)")
+    dp.set_defaults(_mod="drawio", _func="cmd_drawio_preview")
 
     gr = sub.add_parser("graph", help="the devant code/intent graph (index.db)")
     gsub = gr.add_subparsers(dest="gcmd", required=True)
