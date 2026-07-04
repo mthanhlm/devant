@@ -19,18 +19,24 @@ goes only into the local intent graph — never commit anything.
   fails: `mkdir -p "${CLAUDE_PLUGIN_DATA}" && cd "${CLAUDE_PLUGIN_DATA}" && npm i elkjs`. If npm
   is missing, continue degraded — diagrams still ship hand-laid-out.
 - `devant graph sync` (builds/refreshes the self-owned index — no external tool, dec-016).
-- **Native guard backstop (dec-019, opt-in):** offer — with explicit consent, never silently — to
-  seed the project's `.claude/settings.json` with
-  `permissions.deny: ["Bash(git commit*)", "Bash(git push*)", "Bash(git add*)", "Edit(.devant/**)"]`.
-  Explain the value: the native rules also cover the Monitor tool and Bash file-writes like
-  `sed -i` into `.devant/`, and they survive `DEVANT=off` (devant's own hooks are cooperative).
-  Declining is fine — the hook guard still enforces block rules.
-- **Smart compaction floor (dec-018, opt-in):** offer — with explicit consent, never silently — to
-  write `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` (default 50) and `CLAUDE_CODE_AUTO_COMPACT_WINDOW`
-  (default 500000) into the `env` block of `.claude/settings.local.json` (gitignored; NEVER the
-  shared settings.json). This lets long sessions auto-compact early; devant's PreCompact gate
-  then defers each compact to the next phase boundary. Declining costs nothing — the gate and
-  monitor still work at the harness's default threshold.
+- **Native guard backstop (dec-019, default-on):** seed the project's `.claude/settings.json` with
+  `permissions.deny: ["Bash(git commit*)", "Bash(git push*)", "Bash(git add*)",
+  "Bash(git reset --hard*)", "Bash(git clean -f*)", "Bash(git branch -D*)",
+  "Bash(git checkout .*)", "Bash(git restore .*)", "Edit(.devant/**)"]`
+  (force-push is subsumed by `git push*`). The destructive set mirrors a typical global
+  dangerous-git hook, so onboarded repos don't need one. The native rules also cover the
+  Monitor tool and Bash file-writes like `sed -i` into
+  `.devant/`, and they survive `DEVANT=off` (devant's own hooks are cooperative). Apply without
+  asking ONLY when `.claude/settings.json` is absent or untracked (`git ls-files` empty for it);
+  if the file is committed/shared, ask first — silently editing a collaborator-visible file is
+  not ours to decide. Either way, state in one line what was written (it's plain JSON, trivially
+  reversible). Skipping is fine — the hook guard still enforces block rules.
+- **Smart compaction floor (dec-018, default-on):** write `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`
+  (default 50) and `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (default 500000) into the `env` block of
+  `.claude/settings.local.json` (gitignored; NEVER the shared settings.json). Apply without
+  asking — the file is local-only, so there is no externality; state in one line what was
+  written. Long sessions then auto-compact early and devant's PreCompact gate defers each
+  compact to the next phase boundary.
 - `devant graph search` / file listing for layout; read manifests (package.json / pyproject.toml / go.mod / …) for
   the stack; `devant graph explore` on entrypoints (main/index/app/server/cmd) to see how work
   flows. Derive candidate **modules** (id/path/role) and candidate **layer boundaries**.
@@ -70,6 +76,8 @@ After the index is built and intent is seeded, add the semantic layer — taxono
    `devant graph annotate --key <key> --type symbol --summary "<1–2 sentences>" --concepts a,b`.
 3. **The tail (Haiku fan-out, dec-017):** spawn subagents on Haiku with the FIXED taxonomy in
    their prompt — they read files and emit `devant graph annotate` calls; they apply the
-   vocabulary, never invent tags. Estimate token cost first (files × ~10 tok/line) and let the
-   user skip or scope this stage; re-runs are incremental (`--source-hash` skips unchanged).
+   vocabulary, never invent tags. Runs by default: state the token estimate (files × ~10
+   tok/line) in one line and proceed. Ask first only when the estimate is large (> ~1M read
+   tokens) — then offer to scope (hot modules only) or skip. Re-runs are incremental
+   (`--source-hash` skips unchanged).
 Semantic queries then work: `devant graph search <concept>`, `devant graph impact <sym> --semantic`.

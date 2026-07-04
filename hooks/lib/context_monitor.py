@@ -47,6 +47,19 @@ def latest_transcript(tdir):
     return max(files, key=os.path.getmtime) if files else None
 
 
+def usable_transcript(state, tdir, since):
+    """Transcript to trust this poll — but only if written since the monitor started.
+    At session start both transcript.path and the mtime fallback still point at the
+    PREVIOUS session's transcript (often ending near the window limit), which fired a
+    false 'compaction imminent' on the first poll. An untouched file belongs to a dead
+    or idle session; a live one is rechecked within one poll of its next write."""
+    t = session_transcript(state) or latest_transcript(tdir)
+    try:
+        return t if t and os.path.getmtime(t) >= since else None
+    except OSError:
+        return None
+
+
 def last_usage_tokens(path, tail_bytes=262144):
     """Context tokens of the most recent assistant message: input + cache read/create.
     Reads only the file tail — transcripts grow to many MB and this runs every poll."""
@@ -120,8 +133,9 @@ def main():
                      _env_int("CLAUDE_PLUGIN_OPTION_COMPACT_FLOOR_PCT", 50))
     tdir = transcript_dir(proj)
     last_zone = None
+    start = time.time()
     while True:
-        t = session_transcript(state) or latest_transcript(tdir)
+        t = usable_transcript(state, tdir, start)
         used = last_usage_tokens(t) if t else None
         if used:
             p = pct(used, window)

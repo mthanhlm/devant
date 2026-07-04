@@ -2,6 +2,25 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.11.0] - 2026-07-04
+
+### Changed
+- **Onboard extras are default-on (dec-020)**: the compaction floor applies silently
+  (gitignored `settings.local.json` only), the native guard backstop applies without asking
+  when `.claude/settings.json` is absent or untracked (still asks before touching a
+  committed/shared file), and semantic annotation runs by default with a one-line cost
+  estimate (asks only above ~1M read tokens). Each applied step is announced in one line.
+- **Backstop deny list covers destructive git**: `reset --hard`, `clean -f`, `branch -D`,
+  `checkout .`, `restore .` (force-push subsumed by `git push*`) — the native layer now
+  mirrors a typical global dangerous-git hook, so onboarded repos don't need one.
+
+### Fixed
+- **Context monitor startup false alarm (dec-018)**: on the first poll after session start,
+  the newest transcript by mtime (and a stale `transcript.path`) still pointed at the
+  PREVIOUS session — often ending near the window limit — firing a bogus
+  "compaction imminent". The monitor now only trusts a transcript written since it started
+  (`usable_transcript`), which also stops stale data reaching `context.pct`.
+
 ## [0.10.1] - 2026-07-04
 
 ### Removed

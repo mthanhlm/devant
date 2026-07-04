@@ -925,6 +925,31 @@ class PhaseAndCompactGate(unittest.TestCase):
         self.assertEqual(mon.zone(40, 50, "hold"), "low")
         self.assertEqual(mon.zone(90, 50, "open"), "high")
 
+    def test_monitor_ignores_transcript_untouched_since_start(self):
+        # Startup race repro: at session start the newest transcript by mtime (and even a
+        # stale transcript.path) is the PREVIOUS session's, ending near the window limit —
+        # trusting it fired a false "compaction imminent" on the first poll.
+        from importlib.machinery import SourceFileLoader as SFL
+        from importlib.util import module_from_spec as MFS, spec_from_loader as SFLo
+        spec = SFLo("ctxmon2", SFL("ctxmon2", os.path.join(ROOT, "hooks", "lib", "context_monitor.py")))
+        mon = MFS(spec)
+        spec.loader.exec_module(mon)
+        import time
+        tdir = os.path.join(self.proj, "transcripts")
+        os.makedirs(tdir)
+        prev = os.path.join(tdir, "prev.jsonl")
+        with open(prev, "w") as fh:
+            fh.write(json.dumps({"message": {"usage": {"input_tokens": 490000}}}) + "\n")
+        old = time.time() - 60
+        os.utime(prev, (old, old))
+        start = time.time()
+        self.assertIsNone(mon.usable_transcript(self.state, tdir, start))
+        cur = os.path.join(tdir, "cur.jsonl")
+        with open(cur, "w") as fh:
+            fh.write(json.dumps({"message": {"usage": {"input_tokens": 1000}}}) + "\n")
+        os.utime(cur, (start + 1, start + 1))   # mtime granularity can lag time.time()
+        self.assertEqual(mon.usable_transcript(self.state, tdir, start), cur)
+
 
 class DrawioLint(unittest.TestCase):
     """The diagram beauty gate: geometry defects are auto-fixed; semantic ones block (exit 1)."""
