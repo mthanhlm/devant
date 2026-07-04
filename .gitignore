@@ -1,9 +1,6 @@
 __pycache__/
 *.pyc
 .pytest_cache/
-timing_ss.txt
 
-# runtime artifacts if devant/codegraph run inside this repo during development
+# runtime artifacts if devant runs inside this repo during development
 .devant/
-.codegraph/
-.ultrapower/

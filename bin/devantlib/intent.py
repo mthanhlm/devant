@@ -169,7 +169,7 @@ def cmd_link(args):
         if info:
             resolved = (info.get("qualifiedName") or "")
             want = args.symbol.lower().rsplit(".", 1)[-1]
-            # codegraph query is fuzzy; if the top hit doesn't actually contain the requested
+            # graph resolution is name-based; if the hit doesn't actually contain the requested
             # name, don't silently store a wrong path/id — warn and keep just the symbol name.
             if want and want not in resolved.lower():
                 sys.stderr.write("devant: warning — '%s' resolved to '%s' (%s); not storing that path/id. "
@@ -443,7 +443,7 @@ def cmd_show(args):
 
 
 def _graph_dangling(conn):
-    """Intra-graph dangling refs (edges/links pointing at non-existent nodes). Pure SQL, no codegraph."""
+    """Intra-graph dangling refs (edges/links pointing at non-existent nodes). Pure SQL."""
     edges = conn.execute(
         "SELECT e.src, e.kind, e.dst FROM edge e "
         "WHERE NOT EXISTS(SELECT 1 FROM node WHERE id=e.src) OR NOT EXISTS(SELECT 1 FROM node WHERE id=e.dst)"

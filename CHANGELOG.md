@@ -2,6 +2,14 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.1] - 2026-07-04
+
+### Removed
+- Post-cutover residue: hooks no longer write `.codegraph/` into `.git/info/exclude`;
+  stale codegraph wording in comments/help text; orphaned `.gitignore` entries
+  (`timing_ss.txt`, `.codegraph/`); local `__pycache__` build litter; the repo's own
+  `docs/` folder (example diagrams — the diagram skill writes into the USER's repo, not here).
+
 ## [0.10.0] - 2026-07-04
 
 ### Added — the racing-wheel pair is complete (dec-016 P1–P3)

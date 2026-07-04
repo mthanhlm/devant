@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # devant — shared hook helpers. Pure stdlib (bash + python3). Never aborts a
-# session: callers always exit 0 and degrade when codegraph / the devant CLI
-# are absent.
+# session: callers always exit 0 and degrade when the devant CLI is absent.
 
 # Resolve the devant CLI. Prefer the plugin root Claude Code injects; fall back
 # to a path relative to this file (hooks/lib -> plugin root) so hooks are
@@ -112,7 +111,7 @@ dv_ensure_local_ignore() {
   mkdir -p "$(dirname "$excl")" 2>/dev/null
   touch "$excl" 2>/dev/null || return 0
   local pat
-  for pat in ".devant/" ".codegraph/"; do
+  for pat in ".devant/"; do
     grep -qxF "$pat" "$excl" 2>/dev/null || printf '%s\n' "$pat" >> "$excl"
   done
 }

@@ -46,7 +46,7 @@ def build_parser():
     lk.add_argument("--path")
     lk.add_argument("--cg-id", dest="cg_id")
     lk.add_argument("--note")
-    lk.add_argument("--no-resolve", action="store_true", help="don't call codegraph to fill path/id")
+    lk.add_argument("--no-resolve", action="store_true", help="don't resolve against the graph to fill path/id")
     lk.set_defaults(_mod="intent", _func="cmd_link")
 
     d = sub.add_parser("decide", help="record a decision (+ supersede/establish/realize/exempt)")
