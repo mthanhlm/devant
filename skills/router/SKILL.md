@@ -57,6 +57,7 @@ recorded flip-flop ("OK D" → "OK B" in adjacent turns with no new facts) is a 
 | change code: implement / fix / refactor / debug | size it (step 4) → trivial: do it inline; substantial: invoke the `devant:code` skill |
 | write or update docs | invoke the `devant:document` skill |
 | vision / direction / decisions / "record this" / "why are we allowed to X" | invoke the `devant:intent` skill |
+| "debate this" / "challenge this design" / phản biện an approach on the table | invoke the `devant:debate` skill (read-only fork; the architect also invokes it before every approval gate) |
 
 Dispatching is mandatory for substantial work — inlining it instead of using the specialist is
 the failure devant exists to prevent. When you dispatch, pass the sharpened ask (step 1.5) plus

@@ -16,7 +16,8 @@ CLI is `devant`.
 
 ## Scope
 Only high-risk changes (see this skill's description). If the change is low/medium risk, say so and
-stop — the `code` skill's own §6 self-check covers those; an extra review pass is waste.
+stop — the `code` skill's own §6 self-check covers those; an extra review pass is waste. Designs
+before approval are `devant:debate`'s job — this skill judges code diffs after implementation.
 
 ## What to judge (ground each call in the diff + the devant graph, not assumption)
 - **Correctness:** does it meet the real requirement? Each acceptance criterion mapped to code AND a

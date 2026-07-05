@@ -32,6 +32,9 @@ That's the whole surface. No menu of commands to learn.
   they don't claim to stop a determined bypass (`DEVANT=off` disables them, and commands hidden
   inside `sh -c '…'` or `$(…)` aren't parsed).
 - **Pushes back.** Debt-prone or already-rejected requests get challenged before a line is written.
+  Every design additionally faces an independent debater — a forked, read-only cross-examiner that
+  demands evidence (code, recorded intent, or cited sources; never your code sent to the web) from
+  customer, technical, cost, and industry-precedent angles before you approve.
 - **Pushes you to verify.** Bugs want a failing repro test first; the Stop hook surfaces the
   impacted tests (`devant graph affected`) to run. devant *reminds and grounds* verification — it does
   not gate "done" for you; running the tests is still your call.

@@ -74,6 +74,15 @@ approval — to the same bar as devant's diagram guide: **show enough that the r
 walkthrough** (every real branch, loop, and error path — a loop drawn as a loop) and no more. A
 before/after that raises the obvious "but what about…?" questions hasn't done its job.
 
+**Before the gate, submit the design to independent cross-examination — always, no size gate
+(dec-024).** Invoke the `devant:debate` skill with the design package (goal, current, proposed,
+critical decisions, blast radius — not your reasoning for them). Answer each challenge with
+evidence: **concede** (amend the design, say what changed) or **defend** (restate the trade-off
+and why it holds). Re-invoke for the next round until both sides accept or 3 rounds total are
+spent; whatever is still contested becomes an open question the user decides. The gate
+presentation then carries a **challenged / conceded / defended / open** table so approval happens
+with the debate in view.
+
 Then **stop at an explicit approval gate.** You do not write code, you do not scaffold, and you do
 not drop a plan/spec/design `.md` into the repo — devant keeps designs in chat and captures durable
 choices with `devant decide`.
@@ -87,16 +96,17 @@ build their choice, say your recommendation stands, and record the decision as u
 the rejected alternative. An architect who agrees with the last thing said is not designing;
 adjacent-turn flip-flops with no new facts are a defect in this skill's contract.
 
-**On approval, render the design as a diagram via the `devant:diagram` skill** — invoke it to draw
-the proposed architecture (C4 style), and the affected flow as an activity diagram when the change
-is flow-shaped. That gives a durable, shareable picture of what was agreed before `devant:code`
-builds it. (The `devant:diagram` skill is also usable on its own for any diagram; it does not
-depend on this skill.) Then hand the approved design to `devant:code` to implement.
+**Approval locks the design — what happens next follows the user's intent, not a pipeline
+(dec-025/dec-026).** Hand off to `devant:code` only when the user asked for the build (the
+original ask was design-then-build, or they say "build it" at the gate). A design-only ask ends
+here on approval: offer the next steps (implement, diagram) in one line and stop. Likewise do
+NOT auto-invoke `devant:diagram` on approval — designing and diagramming are independent tasks;
+producing either unasked is a contract violation.
 
-**An explicit ask to draw overrides that timing.** If the user asks for the draw.io diagram at any
-point — "draw it", "draw the drawio", "show me the diagram" — invoke `devant:diagram` right then
-on the design as it currently stands, even before approval. Answering a draw request with a prose
-or ASCII description instead of the rendered `.drawio` is a contract violation of this skill.
+**Draw only on an explicit ask.** If the user asks for the draw.io diagram at any point —
+"draw it", "draw the drawio", "show me the diagram" — invoke `devant:diagram` right then on the
+design as it currently stands, before or after approval. Answering a draw request with a prose
+or ASCII description instead of the rendered `.drawio` is equally a contract violation.
 
 ## 4. Record a real decision (only if one was settled)
 If the design settled a genuine architectural choice or ruled one out, capture it once:

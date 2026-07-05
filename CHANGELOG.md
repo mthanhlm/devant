@@ -2,6 +2,35 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.13.0] - 2026-07-05
+
+### Added
+- **`devant:debate` specialist (dec-024)**: an INDEPENDENT design cross-examiner — forked
+  read-only context (Explore agent, effort xhigh), invoked by the architect before EVERY
+  approval gate (no size gate; user-owned call) and router-dispatchable on an explicit
+  "debate/challenge this". Four mandatory lenses (customer value, technical soundness,
+  cost, industry precedent); every challenge carries evidence — a devant-graph symbol, a
+  recorded intent rule, or a WebFetch'd source cited with URL + quote — else it is tagged
+  `[hypothesis — unverified]`. First specialist with `WebSearch`/`WebFetch`; web queries
+  must never contain project code or identifiers (generic pattern questions only), and
+  offline degrades with labels instead of blocking. The exchange is capped at 3 rounds;
+  what stays contested goes to the user at a gate that now shows a
+  challenged/conceded/defended/open table. "No substantive challenge found" is a valid
+  result — disagreement is never manufactured.
+
+### Changed
+- **Architect no longer auto-draws on approval (dec-025)**: designing and diagramming are
+  independent tasks. `devant:diagram` runs only on an explicit ask ("draw it", "show me the
+  diagram"), before or after approval; offering it in one line at the gate is fine,
+  producing it unasked is a contract violation.
+- **Approval locks the design only (dec-026)**: the architect hands off to `devant:code`
+  only when the user's intent includes building (design-then-build ask, or "build it" at
+  the gate). A design-only ask ends at approval with a one-line offer of next steps —
+  design, diagram, and implementation are three independent tasks sequenced by user
+  intent, never by a fixed pipeline.
+- `devant:review` scope sharpened: designs before approval belong to `devant:debate`;
+  review judges code diffs after implementation.
+
 ## [0.12.0] - 2026-07-04
 
 ### Added

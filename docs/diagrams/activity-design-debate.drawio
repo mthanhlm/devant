@@ -1,0 +1,144 @@
+<mxfile host="devant">
+  <diagram name="Design debate flow" id="design-debate">
+    <mxGraphModel dx="900" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="900" pageHeight="1500" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="start" value="" style="ellipse;fillColor=#000000;strokeColor=#000000;html=1;" vertex="1" parent="1">
+          <mxGeometry x="400" y="40" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="a_router" value="&lt;b&gt;Route request&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[router: ground + push back]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="330" y="110" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a_design" value="&lt;b&gt;Draft design&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[architect: current vs proposed]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="330" y="220" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a_debate" value="&lt;b&gt;Re-ground independently&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[debate: fork, read-only]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="330" y="330" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="d_web" value="Web reachable?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="340" y="440" width="140" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="a_hypo" value="&lt;b&gt;Tag unverified claims&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[hypothesis label, no block]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="90" y="440" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a_chal" value="&lt;b&gt;Emit challenges&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[lens + question + evidence]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="330" y="570" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="d_subst" value="Substantive challenges?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="340" y="690" width="140" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="a_answer" value="&lt;b&gt;Answer with evidence&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[architect: concede or defend]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="330" y="820" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="d_accept" value="Both sides accept?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="340" y="940" width="140" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="d_rounds" value="Round below 3?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="110" y="940" width="140" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="a_open" value="&lt;b&gt;Crystallize open items&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[for user decision]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="90" y="1080" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="a_gate" value="&lt;b&gt;Present approval gate&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[conceded / defended / open]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="330" y="1080" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="d_appr" value="User approves?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="340" y="1190" width="140" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="a_impl" value="&lt;b&gt;Implement&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[diagram + devant:code]&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontFamily=Helvetica;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="330" y="1310" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="end_ring" value="" style="ellipse;fillColor=none;strokeColor=#000000;strokeWidth=2;html=1;" vertex="1" parent="1">
+          <mxGeometry x="400" y="1420" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="end_core" value="" style="ellipse;fillColor=#000000;strokeColor=#000000;html=1;" vertex="1" parent="1">
+          <mxGeometry x="407" y="1427" width="16" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;" edge="1" parent="1" source="start" target="a_router">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;" edge="1" parent="1" source="a_router" target="a_design">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="always, no size gate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="a_design" target="a_debate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;" edge="1" parent="1" source="a_debate" target="d_web">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="[offline]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_web" target="a_hypo">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;exitX=0.5;exitY=1;entryX=0;entryY=0.25;" edge="1" parent="1" source="a_hypo" target="a_chal">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="180" y="590" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e7" value="[online]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_web" target="a_chal">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;" edge="1" parent="1" source="a_chal" target="d_subst">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="[none]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="d_subst" target="a_gate">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="570" y="730" />
+              <mxPoint x="570" y="1115" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e10" value="[yes]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_subst" target="a_answer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;" edge="1" parent="1" source="a_answer" target="d_accept">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" value="[no]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_accept" target="d_rounds">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e13" value="[yes]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_accept" target="a_gate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e14" value="[next round]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;jumpStyle=arc;jumpSize=10;exitX=0;exitY=0.5;entryX=0;entryY=0.7;" edge="1" parent="1" source="d_rounds" target="a_chal">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="50" y="980" />
+              <mxPoint x="50" y="619" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e15" value="[cap hit]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_rounds" target="a_open">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="a_open" target="a_gate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;" edge="1" parent="1" source="a_gate" target="d_appr">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e18" value="[yes]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="d_appr" target="a_impl">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e19" value="[rework]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;labelBackgroundColor=#FFFFFF;jumpStyle=arc;jumpSize=10;exitX=1;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="d_appr" target="a_design">
+          <mxGeometry x="-0.85" relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="660" y="1230" />
+              <mxPoint x="660" y="255" />
+            </Array>
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e20" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;" edge="1" parent="1" source="a_impl" target="end_ring">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend" value="&lt;b&gt;Legend&lt;/b&gt;&lt;br&gt;● start  ◎ end  ◆ decision&lt;br&gt;&lt;font color=&quot;#6C8EBF&quot;&gt;■&lt;/font&gt; action  &lt;font color=&quot;#82B366&quot;&gt;■&lt;/font&gt; success&lt;br&gt;&lt;font color=&quot;#D6B656&quot;&gt;■&lt;/font&gt; needs user attention&lt;br&gt;&lt;font color=&quot;#666666&quot;&gt;■&lt;/font&gt; degraded (no web)&lt;br&gt;[guard] on branches" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#FFFFFF;strokeColor=#CCCCCC;fontFamily=Helvetica;fontSize=11;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="640" y="40" width="220" height="130" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
