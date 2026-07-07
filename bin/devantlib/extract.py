@@ -19,7 +19,7 @@ import json
 import os
 import re
 
-EXTRACTOR_VERSION = 1
+EXTRACTOR_VERSION = 2  # v2: decl-tier _extract_generic lineof fix — force re-extraction of files stuck at status=error
 
 MODULE_QUAL = "<module>"
 
@@ -549,6 +549,7 @@ _GENERIC_DECLS = {
 def _extract_generic(text, lang):
     lc = "//" if lang in ("java", "kotlin", "csharp", "rust", "php", "c", "cpp", "swift") else "#"
     clean = strip_comments(text, "go" if lc == "//" else "python", keep_strings=True)
+    lineof = _linecalc(clean)
     symbols, refs = [], []
     for pat, kind in _GENERIC_DECLS[lang]:
         for m in pat.finditer(clean):

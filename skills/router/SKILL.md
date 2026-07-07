@@ -67,7 +67,9 @@ the relevant constraints/area so the specialist starts grounded.
 Use `devant graph impact`/`devant graph callers`. **Trivial** (no downstream callers / no affected
 tests — typo, local edit): just do it in one pass, no fork, no ceremony. **Substantial** (real
 fan-out, crosses a module, or touches a block-constrained area): dispatch to `devant:code`.
-Never decompose a small change for process; there is no fixed pipeline.
+Never decompose a small change for process; there is no fixed pipeline. Trivial sizing waives the
+fork, never the proof: a behavior-changing edit (a bug fix, a new branch) still owes a failing repro
+or asserting test even when done inline — only pure no-behavior edits (typo, rename, comment) skip it.
 
 ## 5. Disclose & log
 End with a one-line note of what you did: `route: <specialist> · <why>`. Then record it:

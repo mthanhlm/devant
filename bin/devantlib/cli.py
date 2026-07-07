@@ -106,6 +106,12 @@ def build_parser():
     ph.add_argument("-j", "--json", action="store_true")
     ph.set_defaults(_mod="intent", _func="cmd_phase")
 
+    gl = sub.add_parser("goal", help="get/set/clear the current task's definition of done (acceptance criteria)")
+    gl.add_argument("--set", dest="set", help="acceptance criteria to record (omit to print the current goal)")
+    gl.add_argument("--clear", action="store_true", help="clear the recorded goal (task done)")
+    gl.add_argument("-j", "--json", action="store_true")
+    gl.set_defaults(_mod="intent", _func="cmd_goal")
+
     lg = sub.add_parser("log", help="record which specialist the router used")
     lg.add_argument("specialist", choices=SPECIALISTS)
     lg.add_argument("intent", nargs="*")

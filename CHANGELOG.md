@@ -2,6 +2,47 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.14.0] - 2026-07-07
+
+Full-plugin review-driven hardening: fix shipped defects, harden the "done = verified" contract,
+and make the graph's health honest. A runtime "solidity ratchet" was designed and debated, then
+deferred (dec-028) as theater without a declared-invariant foundation and diff-scoped attribution.
+
+### Added
+- **`devant goal` — per-task definition of done (P1)**: a reminder-ledger storing the task's
+  acceptance criteria (`.devant/state/goal`), surfaced in the Stop note and re-hydrated at
+  SessionStart so a long multi-turn task never loses its own done-conditions. A reminder surface,
+  never a gate — the model that sets the criteria also meets them, so a hard gate could only
+  rubber-stamp or falsely wedge; code §5 stop-when-stuck still governs.
+- **`graph status` surfaces parse errors (dec-028)**: files whose extractor raised
+  (`status='error'`, 0 symbols) were hidden behind the totals — status now reports
+  `parse_errors`/`error_files` and a warning list, so hollow files can't hide behind
+  "N files, M symbols".
+- **`skills/code/references/quality.md`**: a distilled solid + lean engineering bar (grounded in
+  Anthropic's agent-engineering posture and long-standing practice), cited by both `code` §6 and
+  `review` — de-duplicating the rubric that was ~70% copied across the two.
+
+### Changed
+- **code §5 tightened**: "new evidence" is now defined concretely (a changed failure signature or
+  an eliminated hypothesis), and a stuck stop must show real failing output tagged
+  "BLOCKED — not done" — closing the doorway to a report-instead-of-work hand-back (dec-009).
+- **router §4 repro seam closed**: a behavior-changing edit owes a failing repro/asserting test
+  even when done inline; only pure no-behavior edits skip it.
+- **`review` rubric** now cites `quality.md` instead of restating it.
+
+### Fixed
+- **Extractor decl-tier revived**: `_extract_generic` referenced an unbound `lineof`, so all 9
+  declaration-tier languages (java/kotlin/c#/ruby/rust/php/c/cpp/swift/shell) raised `NameError`
+  and were silently recorded as parse errors. `EXTRACTOR_VERSION` bumped 1→2 so already-onboarded
+  repos re-extract; a regression test now iterates every declared language.
+- **Done-gate over-block**: `DV_STUB_RE` matched substrings (`todos`, `0xXXXX`, `mastodon`) and
+  scanned whole files, so a task that merely touched a file with a pre-existing `TODO` could never
+  complete. Now word-boundary-anchored and scoped to added lines (git diff; whole-file fallback for
+  new/untracked/non-git, fail-open) via a shared `dv_scan_stubs` helper that de-dups the two hooks.
+- **Guard secret scan** capped at 1MB on the PreToolUse hot path; block-rule teeth stay uncapped.
+- **Fragile `sed`** path relativization in the Stop hook replaced with metachar-safe bash.
+- **Retired `codegraph`** removed from user-facing copy (plugin.json description/keyword, README).
+
 ## [0.13.0] - 2026-07-05
 
 ### Added

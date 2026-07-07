@@ -262,11 +262,18 @@ def cmd_graph_status(args):
         return 0
     langs = {r["lang"]: r["c"] for r in conn.execute(
         "SELECT lang, COUNT(*) c FROM file GROUP BY lang ORDER BY c DESC").fetchall()}
+    # Parse errors were previously invisible: a file whose extractor raised is stored with
+    # status='error' and 0 symbols, but status reported only totals — so hollow files could
+    # hide behind "N files, M symbols". Surface them (dec-028).
+    errors = conn.execute(
+        "SELECT path, error FROM file WHERE status='error' ORDER BY path").fetchall()
     report = {
         "schema_version": int(conn.execute(
             "SELECT value FROM meta WHERE key='schema_version'").fetchone()["value"]),
         "files": conn.execute("SELECT COUNT(*) c FROM file").fetchone()["c"],
         "symbols": conn.execute("SELECT COUNT(*) c FROM symbol").fetchone()["c"],
+        "parse_errors": len(errors),
+        "error_files": [r["path"] for r in errors],
         "langs": langs,
         "fts": fts_integrity(conn),
     }
@@ -278,6 +285,12 @@ def cmd_graph_status(args):
         search_mode(conn), report["fts"]))
     for lang, c in langs.items():
         print("  %s: %d" % (lang, c))
+    if errors:
+        print("  ⚠ %d file(s) failed to extract (0 symbols, parse error):" % len(errors))
+        for r in errors[:10]:
+            print("    %s%s" % (r["path"], (": %s" % r["error"]) if r["error"] else ""))
+        if len(errors) > 10:
+            print("    …and %d more" % (len(errors) - 10))
     if not report["files"]:
         print(NUDGE)
     return 0

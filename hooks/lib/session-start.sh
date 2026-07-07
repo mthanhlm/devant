@@ -64,5 +64,13 @@ if [ -f "$STATE/phase" ]; then
 $PHASE"
 fi
 
+# Goal re-hydration (P1): the current task's definition of done survives compaction so a long
+# multi-turn task never loses its own acceptance criteria — the durable answer to "done?".
+if [ -f "$STATE/goal" ]; then
+  GOAL="$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));t=d.get('text','');print('[devant] Task goal (confirm each is met AND verified before done): %s' % t) if t else ''" "$STATE/goal" 2>/dev/null)"
+  [ -n "$GOAL" ] && CTX="$CTX
+$GOAL"
+fi
+
 printf '%s' "$CTX" | dv_emit SessionStart "$SYSMSG"
 exit 0

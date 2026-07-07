@@ -23,7 +23,9 @@ sanctioned path; the edit guard will deny a violation anyway, so resolve it up f
 post that plan before writing any code. This is the thinking step, not a formality after you've
 already decided: if you can't state the how in steps, you haven't planned it yet. Depth scales
 with size (a few lines for a bounded change, a fuller outline for wide/cross-module) but it's
-never skipped. Never quarter a small change.
+never skipped. Never quarter a small change. For substantial work, record the definition of done
+so it can't drift: `devant goal --set "<acceptance criteria, one per line>"` — it's surfaced in the
+Stop reminder and re-hydrated after compaction. It reminds; it never gates (you still verify below).
 
 ## 3. Implement surgically
 Every changed line traces to the request. Match surrounding style and idiom. No drive-by
@@ -48,18 +50,22 @@ refactors or reformatting. Remove only the orphans your change created.
   teaching you anything new, §5 governs the stop.)
 
 ## 5. When stuck, stop — don't loop
-If a fix→test cycle fails ~2–3 times **without new evidence** (same failure, nothing new learned),
-STOP and report state — what you tried, the current failure, your best hypothesis — instead of
-grinding. Repeated attempts on the same information burn context and rarely converge; a human steer
-is cheaper than a tenth blind iteration.
+"New evidence" is concrete: the failure signature **changed** (a different error/assert/stack), or an
+attempt **eliminated** a hypothesis. Re-running the same code to see the same failure is not new
+evidence. If a fix→test cycle fails ~2–3 times without new evidence, STOP — but stopping is **not
+done**. Report state with the same real command output §4 demands (the current failing output,
+verbatim), what you tried, which hypotheses are eliminated, and your best next one, tagged
+explicitly **"BLOCKED — not done."** Never let this stop pose as completion: a hand-back with a
+lower evidence bar than §4's "done" is the report-instead-of-work failure dec-009 forbids. A human
+steer is cheaper than a tenth blind iteration.
 
 ## 6. Engineering-sense check (scale to risk)
-Before "done", sanity-check the change *makes sense*, not just that it runs: solves the real
-requirement, sits in the right layer, follows the repo's existing patterns, adds no one-use
-abstraction or needless dependency, and reads clearly for the next maintainer. For **high-risk**
-changes — auth/authz, data migrations, concurrency, security-sensitive paths, public APIs,
-architecture changes, or a wide graph blast radius — get an INDEPENDENT read-only review via the
-`devant:review` skill before declaring done. Low-risk changes: the self-check above suffices.
+Before "done", sanity-check the change *makes sense*, not just that it runs — against the concrete
+solid + lean bar in `references/quality.md` (error handling, boundary validation, YAGNI, rule-of-
+three, dependency direction, right layer, reads clearly), scaled to risk. For **high-risk** changes
+— auth/authz, data migrations, concurrency, security-sensitive paths, public APIs, architecture
+changes, or a wide graph blast radius — get an INDEPENDENT read-only review via the `devant:review`
+skill before declaring done. Low-risk changes: the self-check above suffices.
 
 ## 7. Record only a real decision
 If the change settled a genuine choice (or ruled one out), capture it:
@@ -69,4 +75,5 @@ Keep it one node. Do not write plan/spec/report markdown. Do not edit `.devant/`
 Phase gate (dec-018): when starting substantial work, run
 `devant phase --set "implementing: <what>" --hold` so auto-compact defers mid-flight;
 at each completed milestone run `devant phase --set "<milestone> done; next: <next>" --open`
-so the deferred compact lands at the boundary.
+so the deferred compact lands at the boundary. When every acceptance criterion is met and
+verified (§4), clear the definition of done: `devant goal --clear`.

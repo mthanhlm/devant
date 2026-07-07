@@ -31,15 +31,21 @@ if [ -s "$TOUCHED" ]; then
 
   NOTE="Before you claim done: deliver real, verified work — actually run it and show real output, not a report of what you would do."
 
+  # The task's own definition of done (P1), if one was set — reminder, not a gate.
+  GOAL="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('text',''))" "$STATE/goal" 2>/dev/null)"
+  [ -n "$GOAL" ] && NOTE="${NOTE}
+Acceptance criteria you set for this task — confirm each is met AND verified before claiming done:
+$GOAL"
+
   if dv_graph_enabled && dv_has_devant; then
-    AFF="$(sed "s#^$PROJ/##" "$TOUCHED" | sort -u | (cd "$PROJ" 2>/dev/null && dv_devant graph affected --stdin 2>/dev/null) | head -20)"
+    AFF="$(while IFS= read -r f; do printf '%s\n' "${f#"$PROJ"/}"; done < "$TOUCHED" | sort -u | (cd "$PROJ" 2>/dev/null && dv_devant graph affected --stdin 2>/dev/null) | head -20)"
     [ -n "$AFF" ] && NOTE="${NOTE}
 Impacted tests to run and confirm green (compiling is not 'done'):
 $AFF"
   fi
 
-  # Space-safe scan for unfinished markers in the files touched this turn.
-  STUBS="$(while IFS= read -r f; do [ -f "$f" ] && grep -lEi "$DV_STUB_RE" -- "$f" 2>/dev/null; done < <(sort -u "$TOUCHED") | head -20)"
+  # Unfinished markers the change ADDED in files touched this turn (added-lines scan).
+  STUBS="$(sort -u "$TOUCHED" | dv_scan_stubs "$PROJ" | head -20)"
   if [ -n "$STUBS" ]; then
     NOTE="${NOTE:+$NOTE
 }Unfinished markers (TODO/FIXME/stub) in files you touched — finish or reconcile before claiming done:

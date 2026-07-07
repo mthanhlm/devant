@@ -23,7 +23,10 @@ def evaluate_guard(rel, content, conn, file_exists=False):
     # ask-level secret can never mask a block-constraint deny.
     candidates = []  # (decision, reason)
 
-    sec = secret_like(content)
+    # Cap the (lookahead-heavy) secret scan at the extractor's 1MB ceiling: it runs on the
+    # PreToolUse hot path and a credential past 1MB in one write is not worth the linear cost.
+    # Block-rule matching below stays uncapped — the teeth must see the whole write.
+    sec = secret_like(content[:1_000_000])
     if sec:
         label, sev = sec
         ctx = DOC_TEST_CTX.search(rel or "")

@@ -13,7 +13,28 @@ DEVANT_BIN="${CLAUDE_PLUGIN_ROOT:-$_DV_LIB/../..}/bin/devant"
 export PYTHONPYCACHEPREFIX="${CLAUDE_PLUGIN_DATA:-${TMPDIR:-/tmp}}/pycache"
 
 # Unfinished-work markers scanned in touched files (Stop note + TaskCompleted gate).
-DV_STUB_RE='TODO|FIXME|XXX|NotImplementedError|not implemented'
+# Word-bounded so 'todos', '0xXXXX', 'mastodon' don't trip the acronym markers.
+DV_STUB_RE='\b(TODO|FIXME|XXX)\b|NotImplementedError|\bnot implemented\b'
+
+# dv_scan_stubs <proj>: read newline-separated file paths on stdin; print those whose
+# CHANGE left an unfinished marker (DV_STUB_RE). For a git-tracked file only the added
+# lines of the working diff are scanned, so a pre-existing marker the change didn't
+# introduce never fires; an untracked/new file or a non-git repo is scanned whole
+# (its content is all new). Fail-open: git or diff errors just yield no match.
+dv_scan_stubs() {
+  local proj="$1" f rel is_git=""
+  ( cd "$proj" 2>/dev/null && git rev-parse --is-inside-work-tree >/dev/null 2>&1 ) && is_git=1
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    rel="${f#"$proj"/}"
+    if [ -n "$is_git" ] && ( cd "$proj" 2>/dev/null && git ls-files --error-unmatch -- "$rel" >/dev/null 2>&1 ); then
+      ( cd "$proj" 2>/dev/null && git diff HEAD --unified=0 -- "$rel" 2>/dev/null ) \
+        | grep -E '^\+' | grep -vE '^\+\+\+' | grep -qiE "$DV_STUB_RE" && printf '%s\n' "$f"
+    else
+      grep -qiE "$DV_STUB_RE" -- "$f" 2>/dev/null && printf '%s\n' "$f"
+    fi
+  done
+}
 
 # dv_enabled: master switch. DEVANT=off disables all devant hook behavior.
 dv_enabled() { [ "${DEVANT:-on}" != "off" ]; }

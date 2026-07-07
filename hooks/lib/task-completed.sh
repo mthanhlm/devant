@@ -13,7 +13,7 @@ PROJ="$(dv_proj_from "$INPUT")"
 TOUCHED="$(dv_state_dir "$PROJ")/${SID:-_}.touched"
 [ -s "$TOUCHED" ] || exit 0
 
-STUBS="$(while IFS= read -r f; do [ -f "$f" ] && grep -lEi "$DV_STUB_RE" -- "$f" 2>/dev/null; done < <(sort -u "$TOUCHED") | head -5)"
+STUBS="$(sort -u "$TOUCHED" | dv_scan_stubs "$PROJ" | head -5)"
 [ -z "$STUBS" ] && exit 0
 echo "[devant] Task not complete: unfinished markers (TODO/FIXME/stub) remain in touched files: $(printf '%s' "$STUBS" | tr '\n' ' ')— finish or reconcile them first." >&2
 exit 2

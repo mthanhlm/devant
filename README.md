@@ -36,8 +36,9 @@ That's the whole surface. No menu of commands to learn.
   demands evidence (code, recorded intent, or cited sources; never your code sent to the web) from
   customer, technical, cost, and industry-precedent angles before you approve.
 - **Pushes you to verify.** Bugs want a failing repro test first; the Stop hook surfaces the
-  impacted tests (`devant graph affected`) to run. devant *reminds and grounds* verification — it does
-  not gate "done" for you; running the tests is still your call.
+  impacted tests (`devant graph affected`) to run. Task completion is blocked while unfinished
+  markers (TODO/FIXME/stub) the change added remain — but devant never gates on test-green:
+  running the tests, and trusting them, stays your call.
 - **Stays out of your repo.** Everything devant stores lives under `.devant/` and is kept out of
   git via `.git/info/exclude` — never committed, never pushed. Only your project code is shared.
 
@@ -55,7 +56,7 @@ Note: the context monitor (smart compaction, dec-018) is a plugin background mon
 
 ## Notes
 
-- `.devant/` (the intent graph + local state) and `.codegraph/` are added to `.git/info/exclude`
+- `.devant/` (the intent graph + local state) is added to `.git/info/exclude`
   automatically on session start; the shared `.gitignore` is never touched.
 - The intent graph is local to your clone. On a fresh clone, run `/devant:onboard` again.
 - Hooks never abort a session: any failure degrades gracefully and exits 0.

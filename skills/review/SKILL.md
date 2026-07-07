@@ -25,11 +25,11 @@ before approval are `devant:debate`'s job — this skill judges code diffs after
   distinguished?
 - **Repo consistency:** follows the existing architecture, naming, error-handling, and state patterns
   (`devant graph explore` the surrounding code)? No public API/boundary changed without need?
-- **Simplicity & sense:** complexity matches the requirement; no one-use abstraction, needless
-  dependency (`devant constraints --path` / `why` for recorded rules), or duplication of an existing
-  helper; sits in the right layer; dependency direction is sound.
-- **Safety:** input validation, least privilege, bounded retries, observable failures, rollback path;
-  no secret committed; no recorded block-constraint violated.
+- **Solid & lean:** judge against the concrete bar in the `code` skill's `references/quality.md`
+  (error handling, boundary validation, least privilege/idempotency, guard clauses, no one-use
+  abstraction, dependency direction, YAGNI/rule-of-three, duplication of an existing helper).
+- **Recorded rules & safety:** the rules for this path (`devant constraints --path` / `why`) — no
+  block-constraint violated, no secret committed, a rollback path wherever state changes.
 
 ## Output
 A verdict — **safe to merge** / **changes needed** — then the specific reasons, each tied to a

@@ -290,6 +290,14 @@ class HookTests(unittest.TestCase):
         self.assertEqual(self.decision(self.w("src/aws.py", "k = 'ghp_abcdefabcdefabcdefabcdefabcdef1234'\n")), "deny")
         self.assertEqual(self.decision(self.w(".devant/intent.db", "x", tool="Edit")), "deny")
 
+    def test_secret_scan_capped_but_block_teeth_uncapped(self):
+        big = "x" * 1_200_000                                                     # past the 1MB secret cap
+        # a leading secret is still caught despite a huge trailing paste
+        self.assertEqual(self.decision(self.w("src/a.py",
+                         "k = 'ghp_abcdefabcdefabcdefabcdefabcdef1234'\n" + big)), "deny")
+        # a block-rule violation PAST the secret cap is still denied — teeth see the whole write
+        self.assertEqual(self.decision(self.w("src/b.py", big + "\nimport sqlite3\n")), "deny")
+
     def test_multiedit_content_is_scanned(self):
         ev = {"cwd": self.proj, "session_id": "h", "tool_name": "MultiEdit",
               "tool_input": {"file_path": os.path.join(self.proj, "src/x.py"),
@@ -322,6 +330,16 @@ class HookTests(unittest.TestCase):
         self.assertIn("TODO", self.ctx(r))
         self.assertFalse(os.path.exists(os.path.join(state, "h.lastturn")))
 
+    def test_stop_hook_surfaces_task_goal(self):
+        state = os.path.join(self.proj, ".devant", "state")
+        os.makedirs(state, exist_ok=True)
+        with open(os.path.join(state, "goal"), "w") as fh:
+            json.dump({"text": "auth check added; failing repro green", "ts": "t"}, fh)
+        with open(os.path.join(state, "h.touched"), "w") as fh:
+            fh.write(os.path.join(self.proj, "x.py") + "\n")
+        r = self.hook("stop.sh", {"cwd": self.proj, "session_id": "h"})
+        self.assertIn("auth check added", self.ctx(r))
+
     def test_stop_hook_active_short_circuits(self):
         state = os.path.join(self.proj, ".devant", "state")
         os.makedirs(state, exist_ok=True)
@@ -348,6 +366,49 @@ class HookTests(unittest.TestCase):
             fh.write("def f():\n    return 1\n")
         r = self.hook("task-completed.sh", {"cwd": self.proj, "session_id": "h"})
         self.assertEqual(r.returncode, 0)                                        # clean -> allow
+
+    def test_task_completed_ignores_substring_false_positives(self):
+        # 'todos' contains 'todo', '0xXXXX' contains 'xxx' — neither is an unfinished marker.
+        srcdir = os.path.join(self.proj, "src")
+        os.makedirs(srcdir, exist_ok=True)
+        fpath = os.path.join(srcdir, "s.py")
+        with open(fpath, "w") as fh:
+            fh.write("def list_todos():\n    return 0xXXXX  # mastodon feed\n")
+        state = os.path.join(self.proj, ".devant", "state")
+        os.makedirs(state, exist_ok=True)
+        with open(os.path.join(state, "h.touched"), "w") as fh:
+            fh.write(fpath + "\n")
+        r = self.hook("task-completed.sh", {"cwd": self.proj, "session_id": "h"})
+        self.assertEqual(r.returncode, 0)                                        # no real marker -> must not block
+
+    def test_task_completed_scopes_stub_scan_to_added_lines(self):
+        # A task that merely TOUCHED a file carrying a pre-existing (committed) TODO must
+        # still complete; only a stub the change itself ADDED should block.
+        def git(*a):
+            subprocess.run(["git", *a], cwd=self.proj, capture_output=True, text=True, env=self.env)
+        git("init")
+        git("config", "user.email", "t@t")
+        git("config", "user.name", "t")
+        git("config", "commit.gpgsign", "false")
+        srcdir = os.path.join(self.proj, "src")
+        os.makedirs(srcdir, exist_ok=True)
+        fpath = os.path.join(srcdir, "p.py")
+        with open(fpath, "w") as fh:
+            fh.write("def f():\n    pass  # TODO: legacy, not mine\n")
+        git("add", "-A")
+        git("commit", "-m", "seed")
+        state = os.path.join(self.proj, ".devant", "state")
+        os.makedirs(state, exist_ok=True)
+        with open(os.path.join(state, "h.touched"), "w") as fh:
+            fh.write(fpath + "\n")
+        with open(fpath, "a") as fh:                                             # unrelated, complete change
+            fh.write("def g():\n    return 2\n")
+        r = self.hook("task-completed.sh", {"cwd": self.proj, "session_id": "h"})
+        self.assertEqual(r.returncode, 0)                                        # pre-existing TODO must not block
+        with open(fpath, "a") as fh:                                             # now the change itself adds a stub
+            fh.write("def h():\n    pass  # TODO: mine, unfinished\n")
+        r = self.hook("task-completed.sh", {"cwd": self.proj, "session_id": "h"})
+        self.assertEqual(r.returncode, 2)                                        # newly-added stub still blocks
 
     def test_warn_rule_informs_without_blocking(self):
         # dec-019: warn-severity constraints surface as allow+additionalContext, not a modal ask.
@@ -457,7 +518,8 @@ class GraphP0(unittest.TestCase):
         r = json.loads(self.dv("graph", "sync", "-j").stdout)
         self.assertEqual(set(r), {"scanned", "indexed", "updated", "removed", "skipped"})
         r = json.loads(self.dv("graph", "status", "-j").stdout)
-        self.assertEqual(set(r), {"schema_version", "files", "symbols", "langs", "fts"})
+        self.assertEqual(set(r), {"schema_version", "files", "symbols", "parse_errors",
+                                  "error_files", "langs", "fts"})
         self.assertIsInstance(json.loads(self.dv("graph", "search", "app", "-j").stdout), list)
         r = json.loads(self.dv("graph", "explore", "app", "-j").stdout)
         self.assertEqual(set(r), {"symbols", "files", "intent"})
@@ -757,6 +819,40 @@ class BenchmarkGate(unittest.TestCase):
             self.assertEqual(rows, [])
 
 
+class DeclTierExtraction(unittest.TestCase):
+    """Regression guard for the shipped-but-hollow decl-tier bug: _extract_generic
+    referenced an unbound `lineof`, so every non-py/js/go language raised NameError
+    and was silently recorded as a 0-symbol parse error. Iterate EVERY declared
+    language so no future addition can go hollow undetected."""
+    SNIPPETS = {
+        "java": "public class Foo {}\nimport java.util.List;\n",
+        "kotlin": "class Foo\nfun bar() {}\n",
+        "csharp": "public class Foo {}\nusing System.Text;\n",
+        "ruby": "class Foo\n  def bar; end\nend\n",
+        "rust": "pub struct Foo;\nfn bar() {}\n",
+        "php": "<?php\nclass Foo {}\nfunction bar() {}\n",
+        "c": "#include <stdio.h>\nint bar(void) { return 0; }\n",
+        "cpp": "class Foo {};\n#include <vector>\n",
+        "swift": "public class Foo {}\nfunc bar() {}\n",
+        "shell": "bar() {\n  echo hi\n}\n",
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, os.path.join(ROOT, "bin"))
+        from devantlib import extract
+        cls.extract = extract
+
+    def test_every_decl_tier_language_extracts(self):
+        for lang in self.extract._GENERIC_DECLS:
+            with self.subTest(lang=lang):
+                self.assertIn(lang, self.SNIPPETS,
+                              "declared lang %s has no coverage snippet" % lang)
+                out = self.extract._extract_generic(self.SNIPPETS[lang], lang)
+                self.assertTrue(out["symbols"] or out["refs"],
+                                "%s extracted nothing (hollow tier)" % lang)
+
+
 class GraphSemantics(unittest.TestCase):
     """P2/P3 (dec-016): resource co-reference impact, container formats, hot ranking,
     concept traversal, and lint link-suggestions — the racing-wheel pair."""
@@ -831,6 +927,23 @@ class GraphSemantics(unittest.TestCase):
         rep = json.loads(self.dv("lint", "-j").stdout)
         self.assertNotIn({"node": "dec-x", "symbol": "evaluate_thing"}, rep["link_suggestions"])
 
+    def test_status_surfaces_parse_errors(self):
+        # dec-028: a file the extractor failed on (status='error', 0 symbols) must not hide
+        # behind the totals — `graph status` surfaces the count, the paths, and a text warning.
+        self.put("ok.py", "def f():\n    return 1\n")
+        self.dv("graph", "sync")
+        import sqlite3
+        conn = sqlite3.connect(self.idx)
+        conn.execute("UPDATE file SET status='error', error='boom' WHERE path='ok.py'")
+        conn.commit()
+        conn.close()
+        rep = json.loads(self.dv("graph", "status", "-j").stdout)
+        self.assertEqual(rep["parse_errors"], 1)
+        self.assertEqual(rep["error_files"], ["ok.py"])
+        txt = self.dv("graph", "status").stdout
+        self.assertIn("failed to extract", txt)
+        self.assertIn("ok.py", txt)
+
 
 class PhaseAndCompactGate(unittest.TestCase):
     """Smart compaction scheduler (dec-018): `devant phase`, the PreCompact gate, and the
@@ -879,6 +992,13 @@ class PhaseAndCompactGate(unittest.TestCase):
         self.assertEqual((d["text"], d["gate"]), ("designing", "hold"))
         self.assertEqual(self.dv("phase", "--set", "design-locked").stdout.strip(), "open")
         self.assertEqual(json.loads(self.dv("phase", "-j").stdout)["gate"], "open")
+
+    def test_goal_set_get_clear_roundtrip(self):
+        self.assertEqual(self.dv("goal", "--set", "repro passes; suite green").stdout.strip(), "set")
+        self.assertEqual(self.dv("goal").stdout.strip(), "repro passes; suite green")
+        self.assertEqual(json.loads(self.dv("goal", "-j").stdout)["text"], "repro passes; suite green")
+        self.dv("goal", "--clear")
+        self.assertEqual(self.dv("goal").stdout.strip(), "no goal recorded.")
 
     def test_gate_defers_auto_compact_mid_phase(self):
         self.set_state(gate="hold", pct=60)

@@ -675,6 +675,35 @@ def cmd_phase(args):
     return 0
 
 
+def cmd_goal(args):
+    """Get/set/clear the current task's definition of done (P1): the acceptance criteria the
+    change must satisfy. Surfaced in the Stop note and re-hydrated at SessionStart so a long
+    multi-turn task never loses its own done-conditions. A reminder surface, never a gate — the
+    model that sets the criteria also meets them, so a hard gate here could only rubber-stamp
+    or falsely wedge; §5 stop-when-stuck still governs when a criterion can't be met."""
+    path = os.path.join(project_dir(), ".devant", "state", "goal")
+    if args.clear:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return 0
+    if args.set is not None:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            json.dump({"text": args.set, "ts": now()}, fh)
+        print("set")
+        return 0
+    try:
+        with open(path) as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        print("{}" if args.json else "no goal recorded.")
+        return 0
+    print(json.dumps(d) if args.json else d.get("text", ""))
+    return 0
+
+
 def cmd_log(args):
     """Append a route to the local usage log (powers dead-skills)."""
     state = os.path.join(project_dir(), ".devant", "state")
