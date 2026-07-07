@@ -2,6 +2,22 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.14.1] - 2026-07-07
+
+Two `drawio-lint` fixes for diagrams that author edge labels and UML final nodes as their own cells.
+
+### Fixed
+- **Edge-through-node false positive**: a standalone `text;` label cell placed on an edge path (the
+  common "edge label as its own cell" pattern) was counted as a bystander node, so every edge got a
+  "routes through a node" warning for meeting its own label — printed alongside `clean.` and
+  re-emitted each diagram round. The routing check now skips boxless cells (`text` elements, or
+  cells with neither fill nor stroke); real bystander shapes still warn (dec-021 no-false-positive).
+- **Crooked UML final node**: the bullseye is authored as two ellipses (ring + core), and a few-px
+  concentric-offset error left the core off-centre — the linter skipped nested/concentric shapes
+  without checking they were actually concentric, so it reported `clean` on a crooked node. `--fix`
+  now re-centres a near-concentric nested shape exactly on its container (within one grid cell; a
+  deliberate corner badge is left alone); without `--fix` it is reported as cosmetic, like off-grid.
+
 ## [0.14.0] - 2026-07-07
 
 Full-plugin review-driven hardening: fix shipped defects, harden the "done = verified" contract,

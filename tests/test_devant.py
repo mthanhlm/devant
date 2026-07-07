@@ -1146,6 +1146,24 @@ class DrawioLint(unittest.TestCase):
         p = self.write(self._model(ring + core))
         self.assertEqual(self.lint(p).returncode, 0, self.lint(p).stdout)
 
+    def test_fix_recentres_off_centre_final_node_core(self):
+        # the real defect: a final-node core left 5px off-centre inside its ring (from grid-snapping
+        # the ring alone) reads as a crooked bullseye. --fix must snap the core exactly concentric.
+        ring = self.vertex("ring", 140, 1200, 30, 30, "ellipse;")   # centre 155,1215
+        core = self.vertex("core", 142, 1207, 16, 16, "ellipse;")   # centre 150,1215 — 5px off
+        p = self.write(self._model(ring + core))
+        self.assertIn("off-centre", self.lint(p).stdout)            # reported, not silently "clean"
+        r = self.lint(p, fix=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("re-centred", r.stdout)
+        import xml.etree.ElementTree as ET
+        g = {c.get("id"): c.find("mxGeometry")
+             for c in ET.parse(p).getroot().findall(".//mxCell[@vertex='1']")}
+        rx, ry = float(g["ring"].get("x")), float(g["ring"].get("y"))
+        cx, cy = float(g["core"].get("x")), float(g["core"].get("y"))
+        self.assertEqual((rx + 30 / 2, ry + 30 / 2), (cx + 16 / 2, cy + 16 / 2))  # concentric now
+        self.assertEqual(self.lint(p).returncode, 0)               # idempotent, stays clean
+
     def test_label_spilling_onto_sibling_blocks(self):
         # a's label is far wider than its 120px node and reaches b; nodes themselves don't overlap
         a = ('<mxCell id="a" value="InventoryReconciliationSagaCoordinator Service" '
@@ -1204,6 +1222,16 @@ class DrawioLint(unittest.TestCase):
         self.assertIn("edges cross", r.stdout)
         self.assertIn("e1<->e2", r.stdout)
         self.assertIn("score: 10", r.stdout)                              # one crossing = 10
+
+    def test_edge_under_text_label_is_not_a_bystander_warning(self):
+        # the common "edge label as its own text cell" pattern: a standalone text element sits on
+        # the edge path. It draws no box, so the edge meeting its own label must not warn (dec-021).
+        cells = (self.vertex("a", 100, 100) + self.vertex("b", 100, 500)
+                 + self.vertex("c", 100, 300, style="text;html=1;align=center;")
+                 + self.wp_edge("e", "a", "b", [(180, 335)]))
+        r = self.lint(self.write(self._model(cells)))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("routes through", r.stdout)
 
     def test_autorouted_edge_never_gets_routing_warnings(self):
         # same a-over-c-to-b geometry but NO waypoints: the path isn't stored, so no guessing

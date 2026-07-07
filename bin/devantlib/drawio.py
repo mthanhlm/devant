@@ -60,6 +60,22 @@ def _overlaps(a, b):
     return dx < 0 and dy < 0
 
 
+def _concentric_target(b, hosts):
+    """If b sits *nearly* centred inside a larger box (a UML final-node core, a badge dot), return
+    the (x, y) making it exactly concentric with the smallest such box — else None. 'Nearly' = the
+    centres are within one grid cell: a deliberately corner-placed shape sits far from centre and is
+    left alone. Fixes the crooked-bullseye left when the outer ring alone gets grid-snapped."""
+    host = min((o for o in hosts if o is not b and _contains(o, b)),
+               key=lambda o: o.w * o.h, default=None)
+    if host is None:
+        return None
+    tx = host.x + host.w / 2 - b.w / 2
+    ty = host.y + host.h / 2 - b.h / 2
+    if abs(tx - b.x) <= DRAWIO_GRID and abs(ty - b.y) <= DRAWIO_GRID and (tx, ty) != (b.x, b.y):
+        return (tx, ty)
+    return None
+
+
 LABEL_LINE_H = 15  # draw.io line height at its default Helvetica 12px
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -131,6 +147,14 @@ def _seg_cross(p1, p2, p3, p4):
     o1, o2 = orient(p1, p2, p3), orient(p1, p2, p4)
     o3, o4 = orient(p3, p4, p1), orient(p3, p4, p2)
     return o1 != o2 and o3 != o4 and 0 not in (o1, o2, o3, o4)
+
+
+def _is_label_only(cell):
+    """True for a cell that draws no box — a draw.io 'text' element, or one with neither fill nor
+    stroke. Such a cell is a floating label (edge labels are often authored as their own text cell),
+    so an edge passing 'through' it is meeting a label, not a bystander node to route around."""
+    st = _drawio_style(cell.get("style"))
+    return st.get("text") is True or (st.get("fillColor") == "none" and st.get("strokeColor") == "none")
 
 
 def _route_hits_box(pts, box):
@@ -247,6 +271,21 @@ def cmd_drawio_lint(args):
                 m.moved = True
     unresolved = [(a.cell.get("id"), b.cell.get("id")) for a, b in overlaps()]
 
+    # Concentric shapes (a final-node core inside its ring) must be *exactly* centred; a few-px
+    # offset — often left when the outer ring alone gets grid-snapped — reads as a crooked bullseye.
+    # Computed after snap/spread so the target uses the container's final position; --fix re-centres,
+    # otherwise it's reported like off-grid (cosmetic, never blocking).
+    hosts = boxes + skips
+    off_center = []
+    for b in boxes:
+        tgt = _concentric_target(b, hosts)
+        if tgt is None:
+            continue
+        off_center.append(b.cell.get("id"))
+        if fixing:
+            b.x, b.y = tgt
+            b.moved = True
+
     # Label collisions — the perceptual defect the retired PNG visual pass used to catch
     # (dec-012): a label wider than its node spilling onto a sibling, or an edge label landing
     # on a node. Estimated font metrics; computed on post-fix coordinates. Report-only: a good
@@ -354,7 +393,9 @@ def cmd_drawio_lint(args):
     through, crossings = [], []
     for eid, pts, ends in routed:
         for b in boxes:  # leaves only — a route legitimately traverses containers
-            if b.cell.get("id") not in ends and _route_hits_box(pts, abs_box(b)):
+            if b.cell.get("id") in ends or _is_label_only(b.cell):
+                continue  # skip endpoints and boxless labels — only real bystander shapes count
+            if _route_hits_box(pts, abs_box(b)):
                 through.append("%s->%s" % (eid, b.cell.get("id")))
     for i in range(len(routed)):
         for j in range(i + 1, len(routed)):
@@ -380,6 +421,8 @@ def cmd_drawio_lint(args):
         resolved = len(initial_overlaps) - len(unresolved)
         if resolved > 0:
             print("fixed: spread %d overlapping node pair(s)" % resolved)
+        if off_center:
+            print("fixed: re-centred %d nested shape(s) on their container" % len(off_center))
     # Only genuine defects fail the gate. Off-grid is a straightening nicety (auto-fixed above),
     # never a reason to block delivery.
     blocking = False
@@ -396,6 +439,8 @@ def cmd_drawio_lint(args):
             print("%s: %s" % (label, ", ".join(str(i) for i in items)))
     if not fixing and off_grid:
         print("off-grid nodes (cosmetic; run --fix to straighten): %s" % ", ".join(off_grid))
+    if not fixing and off_center:
+        print("off-centre nested shapes (cosmetic; run --fix to centre): %s" % ", ".join(off_center))
     for label, items in [
         ("edge routes through a node (warning; move the waypoint to go around it)", through),
         ("edges cross (warning; reroute, or mark with jumpStyle=arc;jumpSize=10)", crossings),
