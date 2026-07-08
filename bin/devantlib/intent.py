@@ -319,10 +319,17 @@ def cmd_constraints(args):
     if args.json:
         print(json.dumps([{**dict(r), "meta": load_meta(r)} for r in rows]))
         return 0
+    budget = getattr(args, "budget", None)
+    budget = 4096 if budget is None else budget
+    # Rule-bearing kinds render before decision history so the byte budget can never
+    # starve a BLOCK/warn rule in favor of an essay.
+    rows = sorted(rows, key=lambda r: r["kind"] == "decision")
+    spent, dropped = 0, []
     for r in rows:
         m = load_meta(r)
         if r["kind"] == "decision":
-            tag = "REJECTED-DECISION" if (r["status"] == "rejected" or m.get("rejected")) else "decision"
+            # tag by STATUS only: recording a rejected ALTERNATIVE doesn't reject the decision
+            tag = "REJECTED-DECISION" if r["status"] == "rejected" else "decision"
         elif r["kind"] == "nongoal":
             tag = "nongoal"
         elif m.get("severity") == "block":
@@ -332,11 +339,139 @@ def cmd_constraints(args):
         line = "[%s] %s: %s" % (tag, r["id"], r["title"])
         if m.get("expected"):
             line += " — do: %s" % m["expected"]
-        print(line)
+        lines = [line]
         if r["body"]:
-            print("    %s" % r["body"])
+            lines.append("    %s" % r["body"])
         if m.get("rejected"):
-            print("    rejected alternative: %s — %s" % (m.get("rejected"), m.get("why_rejected", "")))
+            lines.append("    rejected alternative: %s — %s" % (m.get("rejected"), m.get("why_rejected", "")))
+        entry = "\n".join(lines)
+        size = len(entry.encode("utf-8")) + 1
+        if budget and spent + size > budget:
+            dropped.append(r["id"])
+            continue
+        print(entry)
+        spent += size
+    if dropped:
+        print("    (+%d elided by byte budget: %s — `devant why <id>` or --budget 0)"
+              % (len(dropped), ", ".join(dropped[:10])))
+    return 0
+
+
+_RECALL_KIND_W = {"constraint": 2.0, "nongoal": 2.0, "decision": 1.0, "note": 0.8}
+
+
+def _recency_weight(d):
+    # half-life 14 days on the last touch; undated entries sit mid-scale
+    import time as _t
+    if not d:
+        return 0.5
+    try:
+        age = max(0.0, (_t.time() - _t.mktime(_t.strptime(d[:10], "%Y-%m-%d"))) / 86400.0)
+    except ValueError:
+        return 0.5
+    return 0.5 ** (age / 14.0)
+
+
+def cmd_recall(args):
+    """Budgeted, ranked, titles-only recall of recorded intent for a prompt.
+    Replaces the constraints --area body dump on the UserPromptSubmit hot path:
+    >=2 shared tokens for decisions/notes (>=1 for rules), score = overlap x kind x
+    recency, top 5 under a byte budget, bodies pulled via `devant why`. Ids already
+    injected this session (--seen file) stay silent — except block rules."""
+    conn = connect(args)
+    if conn is None:
+        return 0
+    ptoks = _content_tokens(args.text)
+    if not ptoks:
+        return 0
+    seen = set()
+    if args.seen:
+        try:
+            with open(args.seen) as fh:
+                seen = set(ln.strip() for ln in fh if ln.strip())
+        except OSError:
+            pass
+    scored = []  # (score, rendered_line, dedupe_id, is_block, json_info)
+    for r in conn.execute(
+            "SELECT * FROM node WHERE kind IN ('constraint','nongoal','decision','note')").fetchall():
+        if r["status"] == "superseded":
+            continue
+        m = load_meta(r)
+        is_rule = r["kind"] in ("constraint", "nongoal")
+        if is_rule and r["status"] != "active":
+            continue
+        ntoks = _content_tokens(" ".join(filter(None, (
+            r["title"], m.get("expected"), m.get("rejected")))))
+        overlap = len(ptoks & ntoks)
+        if overlap < (1 if is_rule else 2):
+            continue
+        is_block = m.get("severity") == "block"
+        if r["id"] in seen and not is_block:
+            continue
+        if r["kind"] == "decision":
+            tag = "REJECTED-DECISION" if r["status"] == "rejected" else "decision"
+        elif r["kind"] == "nongoal":
+            tag = "nongoal"
+        elif is_block:
+            tag = "BLOCK"
+        elif r["kind"] == "constraint":
+            tag = "warn"
+        else:
+            tag = "note"
+        line = "[%s] %s: %s" % (tag, r["id"], r["title"])
+        if m.get("expected"):
+            line += " — do: %s" % m["expected"]
+        score = overlap * _RECALL_KIND_W.get(r["kind"], 1.0) * _recency_weight(
+            r["updated"] or r["created"])
+        scored.append((score, line[:160], r["id"], is_block,
+                       {"id": r["id"], "kind": r["kind"], "title": r["title"]}))
+    # what recent sessions did is recallable the same way (dec-043 Phase 2)
+    if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='session'").fetchone():
+        for r in conn.execute("SELECT sid, updated, summary FROM session "
+                              "WHERE summary IS NOT NULL AND summary != ''").fetchall():
+            overlap = len(ptoks & _content_tokens(r["summary"]))
+            if overlap < 2:
+                continue
+            key = "session:" + r["sid"]
+            if key in seen:
+                continue
+            score = overlap * 1.2 * _recency_weight(r["updated"])
+            line = "[session %s] %s" % ((r["updated"] or "")[:10], r["summary"])
+            scored.append((score, line[:160], key, False,
+                           {"id": key, "kind": "session", "title": r["summary"][:120]}))
+    if not scored:
+        if args.json:
+            print("[]")
+        return 0
+    scored.sort(key=lambda t: (-t[0], t[2]))
+    if args.json:
+        print(json.dumps([{**info, "score": round(s, 3)} for s, _, _, _, info in scored[:5]]))
+        return 0
+    budget = args.budget or 900
+    hint = "    (details: devant why <id>)"
+    spent, emitted, lines = len(hint) + 1, [], []
+    for _, line, did, is_block, _info in scored[:5]:
+        size = len(line.encode("utf-8")) + 1
+        if spent + size > budget:
+            continue
+        lines.append(line)
+        spent += size
+        if not is_block:
+            emitted.append(did)
+    if not lines:
+        return 0
+    print("\n".join(lines))
+    print(hint)
+    # flush before recording ids as seen: under DEVANT_DEADLINE_MS an id must never be
+    # marked seen for output the hook never received
+    sys.stdout.flush()
+    if args.seen and emitted:
+        try:
+            os.makedirs(os.path.dirname(args.seen) or ".", exist_ok=True)
+            with open(args.seen, "a") as fh:
+                fh.write("".join(i + "\n" for i in emitted))
+        except OSError:
+            pass  # dedupe degrades to per-turn injection, never an error
     return 0
 
 
@@ -345,10 +480,16 @@ def cmd_why(args):
     if conn is None:
         return 0
     sym = args.symbol
-    links = conn.execute("SELECT * FROM code_link WHERE symbol=?", (sym,)).fetchall()
-    if not links:
-        links = conn.execute("SELECT * FROM code_link WHERE symbol LIKE ?", ("%" + sym + "%",)).fetchall()
-    seen, frontier, chain = set(), [lk["node"] for lk in links], []
+    if conn.execute("SELECT 1 FROM node WHERE id=?", (sym,)).fetchone():
+        # the id form ("devant why dec-041") — the pull-on-demand hint that recall and
+        # constraints print; resolves the node's full body plus its intent chain
+        frontier = [sym]
+    else:
+        links = conn.execute("SELECT * FROM code_link WHERE symbol=?", (sym,)).fetchall()
+        if not links:
+            links = conn.execute("SELECT * FROM code_link WHERE symbol LIKE ?", ("%" + sym + "%",)).fetchall()
+        frontier = [lk["node"] for lk in links]
+    seen, chain = set(), []
     while frontier:
         nid = frontier.pop()
         if nid in seen:

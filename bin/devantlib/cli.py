@@ -78,7 +78,33 @@ def build_parser():
     c.add_argument("--path")
     c.add_argument("--area")
     c.add_argument("-j", "--json", action="store_true")
+    c.add_argument("--budget", type=int, default=4096,
+                   help="byte cap for text output, elided entries are named (0 = unlimited)")
     c.set_defaults(_mod="intent", _func="cmd_constraints")
+
+    rc = sub.add_parser("recall", help="ranked titles-only recall of recorded intent for a prompt")
+    rc.add_argument("text")
+    rc.add_argument("--budget", type=int, default=900, help="byte cap for the injection payload")
+    rc.add_argument("--seen", help="per-session dedupe file: ids listed there stay silent (block rules exempt)")
+    rc.add_argument("-j", "--json", action="store_true")
+    rc.set_defaults(_mod="intent", _func="cmd_recall")
+
+    scap = sub.add_parser("session-capture",
+                          help="hook-driven: fold the transcript delta into this session's memory row")
+    scap.add_argument("--sid", required=True)
+    scap.add_argument("--transcript", required=True)
+    scap.set_defaults(_mod="memory", _func="cmd_session_capture")
+
+    sbr = sub.add_parser("session-brief", help="what the last sessions did — for SessionStart")
+    sbr.add_argument("--last", type=int, default=2)
+    sbr.add_argument("--budget", type=int, default=600)
+    sbr.add_argument("-j", "--json", action="store_true")
+    sbr.set_defaults(_mod="memory", _func="cmd_session_brief")
+
+    sdi = sub.add_parser("session-distill",
+                         help="optional: compress the session record via the host claude CLI (haiku)")
+    sdi.add_argument("--sid", required=True)
+    sdi.set_defaults(_mod="memory", _func="cmd_session_distill")
 
     g = sub.add_parser("guard", help="evaluate a proposed edit against constraints/content rules")
     g.add_argument("--file", required=True)
@@ -230,6 +256,8 @@ def build_parser():
 
 
 def main(argv=None):
+    from .common import maybe_arm_deadline
+    maybe_arm_deadline()
     args = build_parser().parse_args(argv)
     func = getattr(importlib.import_module("devantlib." + args._mod), args._func)
     try:

@@ -17,7 +17,16 @@ dv_enabled || exit 0
 SID="$(dv_sid_from "$INPUT")"
 PROJ="$(dv_proj_from "$INPUT")"
 STATE="$(dv_state_dir "$PROJ")"
-rm -f "$STATE/${SID:-_}.primed" 2>/dev/null
+# .seen goes with .primed: compaction summarizes injected context away, so recall
+# ids must be allowed to resurface afterwards.
+rm -f "$STATE/${SID:-_}.primed" "$STATE/${SID:-_}.seen" 2>/dev/null
+
+# Capture before the context is summarized away — bounds memory loss to this turn.
+TP="$(printf '%s' "$INPUT" | json_field transcript_path)"
+[ -n "$TP" ] || TP="$(cat "$STATE/transcript.path" 2>/dev/null)"
+if dv_has_devant && [ -n "$SID" ] && [ -f "$TP" ]; then
+  (cd "$PROJ" 2>/dev/null && DEVANT_DEADLINE_MS=2000 dv_devant session-capture --sid "$SID" --transcript "$TP" >/dev/null 2>&1)
+fi
 
 [ "$(printf '%s' "$INPUT" | json_field trigger)" = "auto" ] || exit 0
 [ -f "$STATE/phase" ] && [ -f "$STATE/context.pct" ] || exit 0

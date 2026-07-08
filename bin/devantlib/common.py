@@ -97,6 +97,25 @@ def ensure_schema(conn):
 
 # ------------------------------------------------------------------- helpers
 
+def maybe_arm_deadline():
+    """Arm a hard in-process deadline from DEVANT_DEADLINE_MS (set by hook hot paths).
+    On expiry the process exits 0 with unflushed output discarded — the hook sees a
+    clean no-op instead of a stall or a partial payload. No-op where setitimer is
+    unavailable (Windows) or the value is unset/invalid."""
+    import signal
+    ms = os.environ.get("DEVANT_DEADLINE_MS")
+    if not ms or not hasattr(signal, "setitimer"):
+        return
+    try:
+        sec = int(ms) / 1000.0
+    except ValueError:
+        return
+    if sec <= 0:
+        return
+    signal.signal(signal.SIGALRM, lambda s, f: os._exit(0))
+    signal.setitimer(signal.ITIMER_REAL, sec)
+
+
 def now():
     return time.strftime("%Y-%m-%d")
 
@@ -169,7 +188,19 @@ STOPWORDS = set((
 def _content_tokens(s):
     # Meaningful tokens for relevance matching: drop short words and English stopwords
     # so unrelated constraints don't surface just because two strings share 'the'.
-    return set(w for w in re.findall(r"[a-z0-9_]+", (s or "").lower()) if len(w) >= 3 and w not in STOPWORDS)
+    # Identifiers split on underscore and case boundaries (diagramBuild -> diagram/build,
+    # slide_lint -> slide/lint) so prose prompts match code-ish titles; the whole
+    # identifier is kept too so exact mentions score above part-only overlap.
+    toks = set()
+    for w in re.findall(r"[A-Za-z0-9_]+", s or ""):
+        parts = [p for p in re.split(r"_+|(?<=[a-z0-9])(?=[A-Z])", w) if p]
+        if len(parts) > 1:
+            parts.append(w)
+        for p in parts:
+            p = p.lower()
+            if len(p) >= 3 and p not in STOPWORDS:
+                toks.add(p)
+    return toks
 
 
 def first_forbid_hit(content, patterns):

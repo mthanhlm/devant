@@ -20,7 +20,7 @@ SYSMSG=""
 
 # Hygiene: drop per-session state from long-gone sessions and cap the usage log.
 STATE="$(dv_state_dir "$PROJ")"
-find "$STATE" -maxdepth 1 -type f \( -name '*.primed' -o -name '*.dangled' -o -name '*.lastturn' -o -name '*.touched' \) -mtime +7 -delete 2>/dev/null
+find "$STATE" -maxdepth 1 -type f \( -name '*.primed' -o -name '*.dangled' -o -name '*.lastturn' -o -name '*.touched' -o -name '*.seen' \) -mtime +7 -delete 2>/dev/null
 
 # Persist what the context monitor can't discover on its own: this session's transcript
 # path (fixes the two-sessions-one-repo mixup) and the model (window-size fallback).
@@ -34,7 +34,7 @@ fi
 
 CTX=""
 if dv_graph_enabled && dv_has_devant; then
-  GST="$(cd "$PROJ" 2>/dev/null && dv_devant graph status -j 2>/dev/null)"
+  GST="$(cd "$PROJ" 2>/dev/null && DEVANT_DEADLINE_MS=2000 dv_devant graph status -j 2>/dev/null)"
   GFILES="$(printf '%s' "$GST" | json_field files)"
   GSYMS="$(printf '%s' "$GST" | json_field symbols)"
   if [ -n "$GFILES" ] && [ "$GFILES" != "0" ]; then
@@ -45,8 +45,18 @@ if dv_graph_enabled && dv_has_devant; then
   fi
 fi
 
+# Cross-session continuity (dec-043 Phase 2): what the last sessions did, decided,
+# and left open — previously session N+1 saw none of session N.
+BRIEF=""
+dv_has_devant && BRIEF="$(cd "$PROJ" && DEVANT_DEADLINE_MS=2000 dv_devant session-brief --last 2 2>/dev/null)"
+if [ -n "$BRIEF" ]; then
+  CTX="$CTX
+[devant] Previous sessions on this project:
+$BRIEF"
+fi
+
 SUMMARY=""
-dv_has_devant && SUMMARY="$(cd "$PROJ" && dv_devant summary 2>/dev/null)"
+dv_has_devant && SUMMARY="$(cd "$PROJ" && DEVANT_DEADLINE_MS=2000 dv_devant summary 2>/dev/null)"
 if [ -n "$SUMMARY" ]; then
   CTX="$CTX
 [devant] Project intent (honor it; the guard enforces block rules):

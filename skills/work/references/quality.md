@@ -1,6 +1,6 @@
 # Solid & lean code — the concrete bar
 
-The checklist that `code` §6 and the `review` skill point at instead of restating. Apply it
+The checklist that `work` §7 and the `review` skill point at instead of restating. Apply it
 **scaled to risk** — a throwaway script and an auth path do not earn the same bar. Grounded in
 Anthropic's agent-engineering posture (favor simple, debuggable designs over clever ones) and
 long-standing practice (The Pragmatic Programmer; Ousterhout, *A Philosophy of Software Design*;

@@ -213,6 +213,233 @@ class CliEndToEnd(unittest.TestCase):
         rows = json.loads(self.dv("constraints", "--area", "switch storage to postgres", "-j").stdout)
         self.assertIn("dec-pg", [r["id"] for r in rows])
 
+    def test_constraints_text_tags_by_status_not_by_rejected_alternative(self):
+        # an ACCEPTED decision that merely records a rejected ALTERNATIVE must render as
+        # [decision] — tagging it REJECTED-DECISION told the model, on every change prompt,
+        # that the project's accepted decisions had been rejected (dec-043 Phase 0).
+        self.dv("decide", "--title", "keep sqlite storage", "--body", "sqlite is enough",
+                "--rejected", "switch storage to postgres", "--why-rejected", "operational cost")
+        out = self.dv("constraints", "--area", "sqlite storage engine").stdout
+        self.assertIn("[decision] dec-", out)
+        self.assertNotIn("REJECTED-DECISION", out)
+
+    def test_constraints_text_output_is_byte_budgeted(self):
+        # head -40 in the hook caps LINES, not bytes — one decision body is a single
+        # multi-KB line, so matching essays flooded every change prompt (measured 23KB).
+        essay = "word " * 700                                     # ~3.5KB body each
+        for i in range(8):
+            self.dv("decide", "--title", "planner storage call %d" % i, "--body", essay)
+        out = self.dv("constraints", "--area", "planner storage call").stdout
+        self.assertLessEqual(len(out.encode()), 4096 + 256)       # default cap + elision line
+        self.assertIn("elided", out)                              # dropped entries named, never silent
+        full = self.dv("constraints", "--area", "planner storage call", "--budget", "0").stdout
+        self.assertGreater(len(full.encode()), 20000)             # 0 = unlimited escape hatch
+
+    def test_recall_requires_two_shared_tokens_for_decisions(self):
+        # single-shared-token matching was the audited bag-of-words noise source; recall
+        # demands >=2 shared tokens for decisions and never prints bodies (dec-043 Phase 1)
+        self.dv("decide", "--title", "keep sqlite storage", "--body", "rationale " * 200)
+        self.assertEqual(self.dv("recall", "prefer the sqlite dialect quirks").stdout.strip(), "")
+        out = self.dv("recall", "switch the sqlite storage engine").stdout
+        self.assertIn("keep sqlite storage", out)
+        self.assertNotIn("rationale rationale", out)              # titles only, bodies stay in the store
+        self.assertIn("devant why", out)                          # pull-on-demand hint
+
+    def test_recall_seen_dedupe_exempts_block_rules(self):
+        # an id injects once per session (.seen), but BLOCK rules may resurface any turn
+        seen = os.path.join(self.proj, "seen.txt")
+        self.dv("add-node", "--kind", "constraint", "--id", "con-b", "--title",
+                "sqlite storage stays embedded", "--body", "no client-server db",
+                "--severity", "block", "--applies", "src/**")
+        self.dv("decide", "--title", "keep sqlite storage engine", "--body", "r")
+        out1 = self.dv("recall", "sqlite storage engine plans", "--seen", seen).stdout
+        self.assertIn("con-b", out1)
+        self.assertIn("keep sqlite storage engine", out1)
+        out2 = self.dv("recall", "sqlite storage engine plans", "--seen", seen).stdout
+        self.assertNotIn("keep sqlite storage engine", out2)      # deduped
+        self.assertIn("con-b", out2)                              # block rule exempt
+
+    def test_recall_excludes_superseded_decisions(self):
+        d1 = self.dv("decide", "--title", "adopt sqlite storage engine", "--body", "r").stdout.strip()
+        self.dv("decide", "--title", "adopt duckdb storage engine", "--body", "r", "--supersedes", d1)
+        out = self.dv("recall", "which storage engine adopt").stdout
+        self.assertIn("duckdb", out)
+        self.assertNotIn("sqlite", out)                           # retired — its successor speaks
+
+    def test_content_tokens_split_identifiers(self):
+        # camelCase/snake_case identifiers must match their word parts (cbm graft #2):
+        # a prompt saying "diagram build" should reach a title naming diagramBuild
+        toks = dv._content_tokens("diagramBuild slide_lint")
+        for t in ("diagram", "diagrambuild", "slide", "lint", "slide_lint"):
+            self.assertIn(t, toks)
+
+    def test_deadline_env_yields_clean_noop_on_expiry(self):
+        # DEVANT_DEADLINE_MS arms a hard in-process deadline for hook hot paths: on expiry
+        # the CLI exits 0 with unflushed output discarded, so a hook sees a clean no-op
+        # instead of a stall (and never a partial payload).
+        code = ("import os, sys; sys.path.insert(0, %r); os.environ['DEVANT_DEADLINE_MS'] = '50'; "
+                "from devantlib.common import maybe_arm_deadline; maybe_arm_deadline(); "
+                "import time; time.sleep(2); print('LATE')") % os.path.join(ROOT, "bin")
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.stdout, "")
+
+    def _transcript_line(self, **d):
+        return json.dumps(d) + "\n"
+
+    def _write_transcript(self, path, lines):
+        with open(path, "w") as fh:
+            fh.writelines(lines)
+
+    def test_session_capture_extracts_and_accumulates(self):
+        # capture is unconditional and extractive (dec-043 Phase 2): prompts, edited
+        # files, commands with failures kept, end-of-turn conclusions, intent refs —
+        # parsed from the transcript DELTA so repeat captures never duplicate.
+        tp = os.path.join(self.proj, "t.jsonl")
+        lines = [
+            self._transcript_line(type="user", message={"role": "user", "content": "please fix the login bug"}),
+            self._transcript_line(type="assistant", message={"content": [
+                {"type": "tool_use", "id": "tu1", "name": "Bash", "input": {"command": "pytest tests/test_login.py"}},
+                {"type": "tool_use", "id": "tu2", "name": "Edit", "input": {"file_path": "src/login.py"}}]}),
+            self._transcript_line(type="user", message={"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "tu1", "is_error": True, "content": "1 failed: assert token"}]}),
+            self._transcript_line(type="assistant", message={"content": [
+                {"type": "text", "text": "Fixed the login bug by renewing the token; the cache approach failed. dec-001 governs this."}]}),
+            self._transcript_line(type="assistant", isSidechain=True, message={"content": [
+                {"type": "text", "text": "SIDECHAIN NOISE must not be captured"}]}),
+        ]
+        self._write_transcript(tp, lines)
+        r = self.dv("session-capture", "--sid", "s1", "--transcript", tp)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        import sqlite3 as sq
+        row = sq.connect(self.db).execute("SELECT record, summary FROM session WHERE sid='s1'").fetchone()
+        rec = json.loads(row[0])
+        self.assertIn("please fix the login bug", rec["prompts"][0])
+        self.assertIn("src/login.py", rec["files"])
+        self.assertFalse([c for c in rec["commands"] if "pytest" in c["cmd"]][0]["ok"])  # failure kept
+        self.assertIn("renewing the token", rec["tails"][-1])
+        self.assertIn("dec-001", rec["refs"])
+        self.assertNotIn("SIDECHAIN", json.dumps(rec))
+        # delta: append one more prompt, capture again — no duplicates, new prompt present
+        with open(tp, "a") as fh:
+            fh.write(self._transcript_line(type="user", message={"role": "user", "content": "now add a logout test"}))
+        self.dv("session-capture", "--sid", "s1", "--transcript", tp)
+        rec = json.loads(sq.connect(self.db).execute(
+            "SELECT record FROM session WHERE sid='s1'").fetchone()[0])
+        self.assertEqual(sum("login bug" in p for p in rec["prompts"]), 1)
+        self.assertTrue(any("logout test" in p for p in rec["prompts"]))
+
+    def test_session_brief_shows_newest_first_under_budget(self):
+        import sqlite3 as sq
+        conn = sq.connect(self.db)
+        self.dv("summary")                                        # force schema creation
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS session(
+          sid TEXT PRIMARY KEY, proj TEXT, started TEXT, updated TEXT, ended TEXT,
+          summary TEXT, record TEXT, t_offset INTEGER DEFAULT 0);
+        """)
+        for i, day in ((1, "01"), (2, "02"), (3, "03")):
+            conn.execute("INSERT INTO session(sid, proj, updated, summary) VALUES(?,?,?,?)",
+                         ("old%d" % i, self.proj, "2026-07-%sT10:00:00" % day,
+                          "did: session %d work on the parser" % i))
+        conn.commit()
+        out = self.dv("session-brief", "--last", "2").stdout
+        self.assertIn("session 3 work", out)
+        self.assertIn("session 2 work", out)
+        self.assertNotIn("session 1 work", out)                   # only newest N
+        self.assertLess(out.index("session 3 work"), out.index("session 2 work"))
+        self.assertLessEqual(len(out.encode()), 700)
+
+    def test_recall_surfaces_session_digest(self):
+        tp = os.path.join(self.proj, "t2.jsonl")
+        self._write_transcript(tp, [
+            self._transcript_line(type="user", message={"role": "user",
+                                                        "content": "harden the ELK layout in diagram-build"}),
+            self._transcript_line(type="assistant", message={"content": [
+                {"type": "text", "text": "Hardened the ELK layout ordering in diagram-build."}]}),
+        ])
+        self.dv("session-capture", "--sid", "s9", "--transcript", tp)
+        out = self.dv("recall", "the ELK layout of diagram-build").stdout
+        self.assertIn("[session", out)                            # yesterday's work is recallable
+
+    def test_session_eviction_is_two_staged(self):
+        # newest 30 keep full records, older keep summary only, beyond 200 deleted —
+        # the store stays bounded no matter how many sessions accumulate
+        import sqlite3 as sq
+        tp = os.path.join(self.proj, "t3.jsonl")
+        self._write_transcript(tp, [self._transcript_line(
+            type="user", message={"role": "user", "content": "seed"})])
+        self.dv("session-capture", "--sid", "seed", "--transcript", tp)
+        conn = sq.connect(self.db)
+        for i in range(240):
+            conn.execute(
+                "INSERT INTO session(sid, proj, updated, summary, record) VALUES(?,?,?,?,?)",
+                ("bulk%03d" % i, self.proj, "2026-06-%02dT%02d:00:00" % (1 + i % 28, i % 24),
+                 "did: bulk %d" % i, json.dumps({"prompts": ["p%d" % i]})))
+        conn.commit()
+        self.dv("session-capture", "--sid", "seed", "--transcript", tp)   # triggers eviction
+        conn = sq.connect(self.db)
+        full = conn.execute("SELECT COUNT(*) FROM session WHERE record IS NOT NULL").fetchone()[0]
+        total = conn.execute("SELECT COUNT(*) FROM session").fetchone()[0]
+        self.assertLessEqual(full, 30)
+        self.assertLessEqual(total, 200)
+        # direction check: eviction keeps the NEWEST — the just-captured seed row must
+        # survive with its full record intact
+        seed = conn.execute("SELECT record FROM session WHERE sid='seed'").fetchone()
+        self.assertIsNotNone(seed)
+        self.assertIsNotNone(seed[0])
+
+    def test_session_capture_recovers_from_replaced_transcript(self):
+        # a transcript that shrank (rotation/replacement) resets the cursor instead of
+        # silently skipping everything below the stale offset
+        import sqlite3 as sq
+        tp = os.path.join(self.proj, "t4.jsonl")
+        self._write_transcript(tp, [self._transcript_line(
+            type="user", message={"role": "user", "content": "long original prompt " * 20})])
+        self.dv("session-capture", "--sid", "r1", "--transcript", tp)
+        self._write_transcript(tp, [self._transcript_line(
+            type="user", message={"role": "user", "content": "fresh prompt after rotation"})])
+        self.dv("session-capture", "--sid", "r1", "--transcript", tp)
+        row = sq.connect(self.db).execute(
+            "SELECT record, t_offset FROM session WHERE sid='r1'").fetchone()
+        self.assertIn("fresh prompt after rotation", row[0])
+        self.assertEqual(row[1], os.path.getsize(tp))
+
+    def test_session_capture_skips_oversized_line_without_wedging(self):
+        # one JSONL line >= READ_CAP (huge paste / tool result) must not wedge the
+        # cursor: later turns still get captured
+        import sqlite3 as sq
+        tp = os.path.join(self.proj, "t5.jsonl")
+        big = json.dumps({"type": "user", "isMeta": True,
+                          "message": {"role": "user", "content": "x" * (2 * 1024 * 1024 + 512)}})
+        self._write_transcript(tp, [
+            self._transcript_line(type="user", message={"role": "user", "content": "before the giant"}),
+            big + "\n",
+            self._transcript_line(type="user", message={"role": "user", "content": "after the giant"}),
+        ])
+        for _ in range(3):
+            self.dv("session-capture", "--sid", "g1", "--transcript", tp)
+        rec = sq.connect(self.db).execute(
+            "SELECT record FROM session WHERE sid='g1'").fetchone()[0]
+        self.assertIn("before the giant", rec)
+        self.assertIn("after the giant", rec)
+
+    def test_why_resolves_intent_node_ids(self):
+        # recall and constraints print "(details: devant why <id>)" — the id form must
+        # return the node's body, not only code-link symbols
+        d = self.dv("decide", "--title", "keep sqlite storage", "--body",
+                    "portability beats raw speed here").stdout.strip()
+        out = self.dv("why", d).stdout
+        self.assertIn("keep sqlite storage", out)
+        self.assertIn("portability beats raw speed", out)
+
+    def test_session_distill_skips_cleanly_without_claude_cli(self):
+        env = dict(self.env, PATH="/nonexistent")                 # no `claude` on PATH
+        r = subprocess.run([sys.executable, BIN, "--db", self.db, "session-distill", "--sid", "sx"],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0)                         # optional garnish, never an error
+        self.assertEqual(r.stdout.strip(), "")
+
     def test_concurrent_add_node_no_lost_writes(self):
         import concurrent.futures
 
@@ -313,9 +540,9 @@ class HookTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def hook(self, name, event):
+    def hook(self, name, event, env=None):
         return subprocess.run(["bash", os.path.join(ROOT, "hooks", "lib", name)],
-                              input=json.dumps(event), capture_output=True, text=True, env=self.env)
+                              input=json.dumps(event), capture_output=True, text=True, env=env or self.env)
 
     def decision(self, r):
         out = r.stdout.strip()
@@ -538,7 +765,117 @@ class HookTests(unittest.TestCase):
 
     def test_user_prompt_skips_pure_question(self):
         r = self.hook("user-prompt.sh", {"cwd": self.proj, "session_id": "up3", "prompt": "how does the handler work?"})
-        self.assertEqual(r.stdout.strip(), "")                # info-lead, no change signal -> no injection
+        self.assertEqual(r.stdout.strip(), "")                # info-lead + no recall match -> silence
+
+    def test_user_prompt_recall_fires_on_question_prompts(self):
+        # the change-verb gate must no longer suppress recall — questions are exactly the
+        # prompts where past decisions matter ("why did we...?") (dec-043 Phase 1)
+        subprocess.run([sys.executable, BIN, "--db", self.db, "decide", "--title",
+                        "keep sqlite storage in handlers", "--body", "r"],
+                       capture_output=True, text=True, env=self.env)
+        ctx = self.ctx(self.hook("user-prompt.sh",
+                                 {"cwd": self.proj, "session_id": "q1",
+                                  "prompt": "why did we keep sqlite storage here?"}))
+        self.assertIn("keep sqlite storage", ctx)             # recall reaches questions
+        self.assertNotIn("Before changing code", ctx)         # discipline stays change-gated
+
+    def test_user_prompt_seen_dedupe_across_turns_and_compaction(self):
+        # the .seen wiring is in the HOOK, not just the CLI: a recalled id stays silent
+        # on later turns of the same session, and compaction lets it resurface
+        subprocess.run([sys.executable, BIN, "--db", self.db, "decide", "--title",
+                        "keep sqlite storage in handlers", "--body", "r"],
+                       capture_output=True, text=True, env=self.env)
+        ev = {"cwd": self.proj, "session_id": "dd1", "prompt": "why keep sqlite storage here?"}
+        self.assertIn("keep sqlite storage", self.ctx(self.hook("user-prompt.sh", ev)))
+        self.assertNotIn("keep sqlite storage", self.ctx(self.hook("user-prompt.sh", ev)))
+        self.hook("pre-compact.sh", {"cwd": self.proj, "session_id": "dd1", "trigger": "auto"})
+        self.assertIn("keep sqlite storage", self.ctx(self.hook("user-prompt.sh", ev)))
+
+    def test_stop_hook_captures_session_even_without_edits(self):
+        # capture is hook-driven and unconditional — a pure-conversation turn still
+        # lands in the session record (the audited root cause of lost continuity was
+        # capture depending on the model remembering to run a CLI command)
+        tp = os.path.join(self.proj, "tr.jsonl")
+        with open(tp, "w") as fh:
+            fh.write(json.dumps({"type": "user",
+                                 "message": {"role": "user",
+                                             "content": "we agreed to rename the parser module"}}) + "\n")
+        r = self.hook("stop.sh", {"cwd": self.proj, "session_id": "h", "transcript_path": tp})
+        self.assertEqual(r.returncode, 0)
+        import sqlite3 as sq
+        rec = sq.connect(self.db).execute("SELECT record FROM session WHERE sid='h'").fetchone()
+        self.assertIsNotNone(rec)
+        self.assertIn("rename the parser", rec[0])
+
+    def test_session_start_injects_previous_session_brief(self):
+        import sqlite3 as sq
+        subprocess.run([sys.executable, BIN, "--db", self.db, "summary"],
+                       capture_output=True, text=True, env=self.env)
+        conn = sq.connect(self.db)
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS session(
+          sid TEXT PRIMARY KEY, proj TEXT, started TEXT, updated TEXT, ended TEXT,
+          summary TEXT, record TEXT, t_offset INTEGER DEFAULT 0);
+        """)
+        conn.execute("INSERT INTO session(sid, proj, updated, summary) VALUES(?,?,?,?)",
+                     ("prev", self.proj, "2026-07-07T09:00:00", "did: wired the auth guard; open: docs"))
+        conn.commit()
+        ctx = self.ctx(self.hook("session-start.sh", {"cwd": self.proj, "session_id": "ss2"}))
+        self.assertIn("wired the auth guard", ctx)                # session N+1 sees session N
+
+    def test_pre_tool_search_augments_grep_with_graph_symbols(self):
+        # demand-driven injection (cbm graft #1): a Grep whose pattern names an indexed
+        # symbol gets the graph's top hits as additionalContext; misses stay silent
+        env = dict(self.env)
+        env.pop("DEVANT_CODEGRAPH", None)                     # graph on for this test
+        srcdir = os.path.join(self.proj, "src")
+        os.makedirs(srcdir, exist_ok=True)
+        with open(os.path.join(srcdir, "pay.py"), "w") as fh:
+            fh.write("def handle_payment_flow(order):\n    return order\n")
+        subprocess.run([sys.executable, BIN, "graph", "sync"], cwd=self.proj,
+                       capture_output=True, text=True, env=env)
+        r = self.hook("pre-tool-search.sh", {"cwd": self.proj, "session_id": "g1",
+                                             "tool_name": "Grep",
+                                             "tool_input": {"pattern": "handle_payment_flow"}}, env=env)
+        ctx = self.ctx(r)
+        self.assertIn("[symbol]", ctx)
+        self.assertIn("handle_payment_flow", ctx)
+        r = self.hook("pre-tool-search.sh", {"cwd": self.proj, "session_id": "g1",
+                                             "tool_name": "Grep",
+                                             "tool_input": {"pattern": "\\bhandle_payment_flow\\b"}}, env=env)
+        self.assertIn("handle_payment_flow", self.ctx(r))     # \b-wrapped idiom must still hit
+        self.assertNotIn("bhandle", self.ctx(r))              # escape letter never glues on
+        r = self.hook("pre-tool-search.sh", {"cwd": self.proj, "session_id": "g1",
+                                             "tool_name": "Grep",
+                                             "tool_input": {"pattern": "zzqx_no_such_name"}}, env=env)
+        self.assertEqual(r.stdout.strip(), "")                # miss -> clean pass-through
+        r = self.hook("pre-tool-search.sh", {"cwd": self.proj, "session_id": "g1",
+                                             "tool_name": "Glob",
+                                             "tool_input": {"pattern": "**/*.py"}}, env=env)
+        self.assertEqual(r.stdout.strip(), "")                # no identifier token -> skip
+
+    def test_user_prompt_discipline_block_survives_verbatim(self):
+        # the block once held real backticks inside double quotes — bash executed
+        # `devant graph affected` at prompt time and injected its OUTPUT in place of the
+        # command name ("run the  subset"), corrupting the instruction (dec-043 Phase 0)
+        ctx = self.ctx(self.hook("user-prompt.sh",
+                                 {"cwd": self.proj, "session_id": "up4", "prompt": "fix the handler bug"}))
+        self.assertIn("`devant graph affected`", ctx)
+
+    def test_stop_note_silent_on_clean_edit_turn(self):
+        # an edit turn with no findings (no goal, no affected tests, no stubs, no dangling)
+        # must emit nothing — the unconditional sermon cost one extra model turn per edit turn
+        srcdir = os.path.join(self.proj, "src")
+        os.makedirs(srcdir, exist_ok=True)
+        fpath = os.path.join(srcdir, "clean.py")
+        with open(fpath, "w") as fh:
+            fh.write("def f():\n    return 1\n")
+        state = os.path.join(self.proj, ".devant", "state")
+        os.makedirs(state, exist_ok=True)
+        with open(os.path.join(state, "h.touched"), "w") as fh:
+            fh.write(fpath + "\n")
+        r = self.hook("stop.sh", {"cwd": self.proj, "session_id": "h"})
+        self.assertEqual(r.stdout.strip(), "")
 
     def test_pre_compact_reprimes_discipline_block(self):
         ev = {"cwd": self.proj, "session_id": "pc", "prompt": "fix the handler bug"}

@@ -32,9 +32,10 @@ That's the whole surface. No menu of commands to learn.
   they don't claim to stop a determined bypass (`DEVANT=off` disables them, and commands hidden
   inside `sh -c '…'` or `$(…)` aren't parsed).
 - **Pushes back.** Debt-prone or already-rejected requests get challenged before a line is written.
-  Every design additionally faces an independent debater — a forked, read-only cross-examiner that
-  demands evidence (code, recorded intent, or cited sources; never your code sent to the web) from
-  customer, technical, cost, and industry-precedent angles before you approve.
+  Every design red-teams itself inline (three evidence-cited objections, one always asking whether
+  the thing being extended is worth extending); at the gate you can escalate to an independent
+  forked debater that demands evidence from incumbent-fitness, customer, technical, cost, and
+  precedent angles (opt-in, dec-044 — never your code sent to the web).
 - **Pushes you to verify.** Bugs want a failing repro test first; the Stop hook surfaces the
   impacted tests (`devant graph affected`) to run. Task completion is blocked while unfinished
   markers (TODO/FIXME/stub) the change added remain — but devant never gates on test-green:

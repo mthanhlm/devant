@@ -2,6 +2,77 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.18.0] - 2026-07-09
+
+The dec-043 restructure (phases 0–4): per-turn injection cut ~94% (20–24KB → ≤1.5KB worst turn),
+hook-driven session memory, skills 11→8 around a single `work` entry point, spec-first artifacts
+with committed specs. Grounded in a 55-agent audit (36 confirmed findings) and an adversarial
+12-agent diff review (8 majors found and fixed pre-release). Four mechanisms adapted from
+DeusData/codebase-memory-mcp as native stdlib implementations (dec-048 — reference design only,
+never a dependency).
+
+### Added
+- **`devant recall <text> [--budget 900] [--seen FILE]`**: ranked, titles-only recall of recorded
+  intent for a prompt — ≥2 shared tokens for decisions/notes (≥1 for rules), score = overlap ×
+  kind × 14-day-half-life recency, top 5 under a byte budget, bodies pulled via `devant why <id>`.
+  Ids inject once per session (`.seen`; block rules exempt); fires on question prompts too, which
+  previously got zero intent context.
+- **Session memory (`bin/devantlib/memory.py`, stdlib)**: every Stop/PreCompact/SessionEnd runs
+  `devant session-capture` — an extractive transcript-delta parse (prompts, files edited,
+  commands with failures kept preferentially, errors, end-of-turn conclusions, dec-refs) into ONE
+  bounded row per session in intent.db, behind a crash-safe byte-offset cursor (oversized ≥2MiB
+  lines are skipped, never wedge). Two-stage eviction: 30 full records → 200 summary-only →
+  180-day delete (~220KB ceiling, zero markdown files). `devant session-brief` injects the last
+  sessions' digests at SessionStart; digests are recall candidates. Optional
+  `devant session-distill` (host `claude -p --model haiku`, 45s timeout, `DEVANT=off` inside,
+  fail-open to the extractive floor).
+- **PreToolUse Grep/Glob graph augment (`hooks/lib/pre-tool-search.sh`)**: a search pattern that
+  names an indexed symbol gets the top-5 graph hits injected beside the results — demand-driven
+  context instead of per-prompt push. Regex escapes stripped (`\bfoo\b` works), min-token gate,
+  500ms deadline, never intercepts Read, every miss/error path exits 0 silently.
+- **`DEVANT_DEADLINE_MS`** (`common.maybe_arm_deadline`, armed in CLI main): hard in-process
+  deadline for hook hot paths — on expiry the process exits 0 with unflushed output discarded,
+  so a hook sees a clean no-op, never a stall or a partial payload.
+- **`skills/work`** (replaces router+code+ask+intent): dispatch table, hook-recall trust, blast-
+  radius sizing, code's evidence-not-claims verification section verbatim, one 3-item
+  hold-position evidence test. **`skills/design`** (replaces architect + always-on debate):
+  step-0 keep/bend/replace verdict — "prototype/known-bad" flips grounding to replace mode —
+  2–3 triaged axes, inline 3-objection red-team (one mandatorily incumbent-fitness), recorded-
+  decision staleness + `--supersedes` offer at the gate, debate as a priced opt-in escalation.
+- `devant why <id>` resolves intent-node ids (the pull-on-demand hint recall prints) — previously
+  only code-link symbols resolved.
+- `devant constraints --budget N` (default 4096, 0 = unlimited): in-process byte cap; rule-bearing
+  kinds render before decision history; elided ids are named, never silent.
+
+### Changed
+- **UserPromptSubmit** injects the ≤900B recall instead of the `constraints --area` body dump
+  (measured 10–24KB/turn, ~95% noise, single-token matching, growing with the store). Worst
+  first-prompt payload on this repo's live store: 24,184B → ≤1,463B. Identifier tokens split on
+  case/underscore boundaries so prose prompts match code-ish titles.
+- **Stop note is content-gated**: fires only on real findings (goal/affected tests/stubs/
+  dangling) — the unconditional sermon cost one model turn on every clean edit turn.
+- **Skills 11→8** (`work`, `design`, `debate`, `review`, `document`, `onboard`, `diagram`,
+  `slide`); `commands/run.md` targets `devant:work`; debate demoted to escalation-only
+  (dec-044 supersedes dec-024/dec-037), keeping evidence tiers + kill-shot protocol + Opus pin
+  for the elected path; `quality.md` moves to `skills/work/references/`.
+- **Artifacts are spec-first with COMMITTED specs (dec-045/046/047)**: `docs/diagrams/<n>.spec.json`
+  and `docs/slides/<n>.deck.json` are the source of truth — re-runs read and PATCH them, so
+  hand-tuning survives regeneration. Visual gates on-demand (user ask / lint failure / raw path;
+  slide keeps 1+1); lint stays the always-on floor. `drawio-guide.md` splits: ~8KB default read
+  (header + §0 + §6); §1–§5 + §7 move to a lazily-read `raw-xml-escape.md` (~25KB). A diagram
+  request's ingest drops ~46.6KB → ~12KB; studio stays in-repo behind the lazy references.
+- Tags in text output are by STATUS only — accepted decisions no longer render as
+  `[REJECTED-DECISION]` just for recording a rejected alternative (every emitted tag was a
+  mislabel).
+
+### Fixed
+- Unescaped backticks in the discipline block executed `devant graph affected` at prompt time and
+  ate the command name from the injected instruction — now a quoted heredoc, snapshot-tested.
+- Transcript cursor wedge on a single ≥2MiB JSONL line; stale-offset reset on shrunk/replaced
+  transcripts; recall ids flushed to stdout before being marked seen; `--` argv guard so a prompt
+  like `--help` can't hit argparse; review/document/README/raw-escape references to deleted
+  skills updated.
+
 ## [0.17.0] - 2026-07-08
 
 Diagram pipeline speed + comprehensibility: spec-first generator over hardened ELK (dec-041/042).

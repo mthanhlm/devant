@@ -25,22 +25,30 @@ if [ "$(printf '%s' "$INPUT" | json_field hook_event_name)" = "SubagentStop" ]; 
   exit 0
 fi
 
+# Session memory capture (dec-043 Phase 2): unconditional and silent, EVERY main turn —
+# a pure-conversation turn still lands in the record. Crash-safe: parses only the
+# transcript delta past a stored byte offset.
+TP="$(printf '%s' "$INPUT" | json_field transcript_path)"
+[ -n "$TP" ] || TP="$(cat "$STATE/transcript.path" 2>/dev/null)"
+if dv_has_devant && [ -n "$SID" ] && [ -f "$TP" ]; then
+  (cd "$PROJ" 2>/dev/null && DEVANT_DEADLINE_MS=2000 dv_devant session-capture --sid "$SID" --transcript "$TP" >/dev/null 2>&1)
+fi
+
 # Only do real work on a turn that actually edited files (no-edit turns stay cheap).
 if [ -s "$TOUCHED" ]; then
   dv_graph_enabled && dv_has_devant && (cd "$PROJ" 2>/dev/null && dv_devant graph sync >/dev/null 2>&1)
 
-  NOTE="Before you claim done: deliver real, verified work — actually run it and show real output, not a report of what you would do."
-
-  # The task's own definition of done (P1), if one was set — reminder, not a gate.
+  # The note is content-gated (dec-043 Phase 0): it fires only when there is a real
+  # finding (goal, affected tests, stubs, dangling) — the unconditional "deliver real
+  # verified work" sermon cost one extra model turn on every clean edit turn.
   GOAL="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('text',''))" "$STATE/goal" 2>/dev/null)"
-  [ -n "$GOAL" ] && NOTE="${NOTE}
-Acceptance criteria you set for this task — confirm each is met AND verified before claiming done:
+  [ -n "$GOAL" ] && NOTE="Acceptance criteria you set for this task — confirm each is met AND verified before claiming done:
 $GOAL"
 
   if dv_graph_enabled && dv_has_devant; then
-    AFF="$(while IFS= read -r f; do printf '%s\n' "${f#"$PROJ"/}"; done < "$TOUCHED" | sort -u | (cd "$PROJ" 2>/dev/null && dv_devant graph affected --stdin 2>/dev/null) | head -20)"
-    [ -n "$AFF" ] && NOTE="${NOTE}
-Impacted tests to run and confirm green (compiling is not 'done'):
+    AFF="$(while IFS= read -r f; do printf '%s\n' "${f#"$PROJ"/}"; done < "$TOUCHED" | sort -u | (cd "$PROJ" 2>/dev/null && DEVANT_DEADLINE_MS=2000 dv_devant graph affected --stdin 2>/dev/null) | head -20)"
+    [ -n "$AFF" ] && NOTE="${NOTE:+$NOTE
+}Impacted tests to run and confirm green (compiling is not 'done'):
 $AFF"
   fi
 
@@ -54,7 +62,7 @@ $STUBS"
 
   # Dangling check: remind at most once per session (don't nag every edit turn).
   if dv_has_devant && [ ! -f "$STATE/${SID:-_}.dangled" ]; then
-    DANG="$(cd "$PROJ" && dv_devant dangling 2>/dev/null | head -20)"
+    DANG="$(cd "$PROJ" && DEVANT_DEADLINE_MS=2000 dv_devant dangling 2>/dev/null | head -20)"
     if [ -n "$DANG" ]; then
       NOTE="${NOTE:+$NOTE
 }$DANG"
