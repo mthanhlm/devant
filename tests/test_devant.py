@@ -1616,6 +1616,141 @@ class SlideSkill(unittest.TestCase):
             r2 = self.dv("slide-lint", self._variant(d, extra_page=bars), "--allow-chart")
             self.assertEqual(r2.returncode, 0, r2.stderr)
 
+    # ---- slide-build: deterministic geometry generator (dec-040) ----
+    # Correctness anchor is these geometry assertions (equal widths/gutters + margin-safe on all 7
+    # archetypes), NOT equality to slide-build's own output.
+    EPS = 0.02
+    _DECK = [
+        {"archetype": "title", "title": "Ship it", "subtitle": "A short view"},
+        {"archetype": "section-divider", "kicker": "PART ONE", "title": "Where time goes"},
+        {"archetype": "milestone-flow", "kicker": "HOW IT WORKS", "heading": "Four phases",
+         "cards": [{"title": "Ground", "desc": "Read graph"}, {"title": "Design", "desc": "Vet"},
+                   {"title": "Build", "desc": "Edit"}, {"title": "Verify", "desc": "Prove"}]},
+        {"archetype": "metric", "stat": "5 min", "label": "target", "src": "dec-040"},
+        {"archetype": "two-column-compare", "heading": "Before and after",
+         "left": {"title": "Today", "points": ["Hand XML", "Uneven", "3 rounds"]},
+         "right": {"title": "Now", "points": ["Spec", "Aligned", "1 pass"]}},
+        {"archetype": "three-point", "heading": "Why faster",
+         "points": [{"title": "Less", "desc": "Spec"}, {"title": "Aligned", "desc": "Math"},
+                    {"title": "Trusted", "desc": "Gate"}]},
+        {"archetype": "process-flow", "heading": "Render path",
+         "steps": ["Author", "build", "soffice", "deliver"]},
+        {"archetype": "metric", "title": "One line to a deck", "body": "More story."},
+    ]
+
+    def _build(self, tmp, spec, *extra):
+        sp = os.path.join(tmp, "spec.json")
+        with open(sp, "w") as fh:
+            json.dump(spec, fh)
+        out = os.path.join(tmp, "deck.fodp")
+        return self.dv("slide-build", sp, "-o", out, *extra), out
+
+    def _pages(self, path):
+        from xml.dom import minidom
+        return minidom.parse(path).getElementsByTagName("draw:page")
+
+    def _boxes(self, page, tag=None, h=None):
+        out = []
+        for t in ((tag,) if tag else ("draw:rect", "draw:frame")):
+            for el in page.getElementsByTagName(t):
+                b = tuple(float(el.getAttribute(a)[:-2])
+                          for a in ("svg:x", "svg:y", "svg:width", "svg:height"))
+                if h is None or abs(b[3] - h) < 0.001:
+                    out.append(b)
+        return out
+
+    def test_build_all_archetypes_margin_safe(self):
+        with tempfile.TemporaryDirectory() as d:
+            r, out = self._build(d, self._DECK)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            for pi, page in enumerate(self._pages(out), 1):
+                for (x, y, w, h) in self._boxes(page):
+                    self.assertGreaterEqual(x, 1.6 - self.EPS, "page %d left" % pi)
+                    self.assertGreaterEqual(y, 1.6 - self.EPS, "page %d top" % pi)
+                    self.assertLessEqual(x + w, 26.4 + self.EPS, "page %d right" % pi)
+                    self.assertLessEqual(y + h, 14.15 + self.EPS, "page %d bottom" % pi)
+
+    def test_build_milestone_cards_equal_width_and_gutter(self):
+        with tempfile.TemporaryDirectory() as d:
+            _, out = self._build(d, [self._DECK[2]])
+            cards = sorted(self._boxes(self._pages(out)[0], tag="draw:rect", h=4.6))
+            self.assertEqual(len(cards), 4)
+            self.assertEqual(len({round(w, 3) for (_, _, w, _) in cards}), 1, "card widths differ")
+            gaps = [round(cards[i + 1][0] - cards[i][0], 3) for i in range(3)]
+            self.assertEqual(len(set(gaps)), 1, "card pitch differs: %s" % gaps)
+
+    def test_build_compare_panels_equal_width(self):
+        with tempfile.TemporaryDirectory() as d:
+            _, out = self._build(d, [self._DECK[4]])
+            panels = self._boxes(self._pages(out)[0], tag="draw:rect", h=8.8)
+            self.assertEqual(len(panels), 2)
+            self.assertAlmostEqual(panels[0][2], panels[1][2], places=3)
+
+    def test_build_threepoint_columns_equal(self):
+        with tempfile.TemporaryDirectory() as d:
+            _, out = self._build(d, [self._DECK[5]])
+            titles = sorted(self._boxes(self._pages(out)[0], tag="draw:frame", h=1.0))
+            self.assertEqual(len(titles), 3)
+            self.assertEqual(len({round(w, 3) for (_, _, w, _) in titles}), 1, "column widths differ")
+            gaps = [round(titles[i + 1][0] - titles[i][0], 3) for i in range(2)]
+            self.assertEqual(len(set(gaps)), 1, "column pitch differs: %s" % gaps)
+
+    def test_build_deck_lints_clean(self):
+        with tempfile.TemporaryDirectory() as d:
+            _, out = self._build(d, self._DECK)
+            r = self.dv("slide-lint", out)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_build_unknown_archetype_errors(self):
+        with tempfile.TemporaryDirectory() as d:
+            r, _ = self._build(d, [{"archetype": "pie-chart", "title": "x"}])
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("unknown archetype", r.stderr)
+
+    def test_build_missing_field_errors(self):
+        with tempfile.TemporaryDirectory() as d:
+            r, _ = self._build(d, [{"archetype": "milestone-flow", "heading": "x"}])
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("cards", r.stderr)
+
+    def test_build_raw_passthrough(self):
+        frag = '<draw:page draw:name="Raw" draw:style-name="dpDark" draw:master-page-name="Master"/>'
+        with tempfile.TemporaryDirectory() as d:
+            _, out = self._build(d, [{"archetype": "raw", "fodp": frag}])
+            with open(out) as fh:
+                self.assertIn(frag, fh.read())
+
+    def test_build_numeric_title_lints_clean(self):
+        # a headline with a year is not a fabricated hero stat (dec-040 review #1)
+        with tempfile.TemporaryDirectory() as d:
+            _, out = self._build(d, [{"archetype": "title", "title": "2026 Strategy"},
+                                     {"archetype": "section-divider", "title": "Top 5 Bets"}])
+            r = self.dv("slide-lint", out)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_build_malformed_items_fail_clean(self):
+        # bare-string card, labelless step, over-long compare column -> clean exit 1, no traceback
+        bad = [
+            [{"archetype": "milestone-flow", "heading": "h", "cards": ["a", "b"]}],
+            [{"archetype": "process-flow", "heading": "h", "steps": [{"n": 1}, {"n": 2}]}],
+            [{"archetype": "two-column-compare", "heading": "h",
+              "left": {"title": "L", "points": ["1", "2", "3", "4", "5", "6", "7"]},
+              "right": {"title": "R", "points": ["x"]}}],
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            for spec in bad:
+                r, _ = self._build(d, spec)
+                self.assertEqual(r.returncode, 1, spec)
+                self.assertNotIn("Traceback", r.stderr)
+                self.assertTrue(r.stderr.startswith("devant:"), r.stderr)
+
+    def test_build_name_with_quote_stays_wellformed(self):
+        # a page name is an XML attribute; a quote in it must not break the document (review #3)
+        from xml.dom import minidom
+        with tempfile.TemporaryDirectory() as d:
+            _, out = self._build(d, [{"archetype": "title", "title": "x", "name": 'a" onload="y'}])
+            minidom.parse(out)   # raises if the attribute injection broke well-formedness
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -2,6 +2,31 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.16.0] - 2026-07-08
+
+Slide pipeline speed + quality: deterministic geometry generator (dec-040).
+
+### Added
+- **`devant slide-build <spec.json>`** (new stdlib generator in `slide.py`): authors a whole
+  `.fodp` deck from a compact JSON slide spec, computing per-archetype geometry deterministically
+  instead of hand-writing absolute-cm XML. Measurement showed `soffice` render (~2s/round) was
+  never the bottleneck — the 20-30 min/deck was model-time spent emitting ~6,800 tokens of XML
+  plus a 3-round vision loop. slide-build collapses authoring to a few-hundred-token spec and makes
+  alignment correct by construction. Seven archetypes (title, section-divider, milestone-flow,
+  metric, two-column-compare, three-point, process-flow) reuse the existing brand style names so
+  `slide-lint`/brand fidelity stay automatic, plus a per-slide `raw` escape for bespoke pages.
+  Spec validation fails loud (clean nonzero exit) on an unknown archetype, a missing/mistyped
+  field, or an over-long column; cards/columns are equal-width, equal-gutter, and margin-safe
+  (geometry-assertion tests cover all seven).
+
+### Changed
+- **Slide skill workflow (`skills/slide/SKILL.md`, dec-040)**: step 3 now authors a `spec.json`
+  and runs `slide-build` rather than hand-authoring `.fodp` XML; the visual gate drops from
+  **3 rounds to 1 pass + 1 corrective** (geometry is deterministic, so the pass only guards text
+  overflow and font substitution). Single-`.pptx` deliverable, temp-dir, and cleanup unchanged.
+- **`slide-lint` hero-figure threshold 40pt → 60pt**: a numeric *headline* (pH1w, 40pt) is no
+  longer misflagged as a fabricated hero stat; a real hero figure (pFig, 80pt) is still caught.
+
 ## [0.15.1] - 2026-07-08
 
 ### Changed

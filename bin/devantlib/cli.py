@@ -159,6 +159,13 @@ def build_parser():
     sl.add_argument("--allow-chart", action="store_true", help="accept a bar-like graphic on a page")
     sl.set_defaults(_mod="slide", _func="cmd_slide_lint")
 
+    sb = sub.add_parser("slide-build",
+                        help="emit a complete .fodp deck from a compact JSON slide spec")
+    sb.add_argument("spec", help="path to a JSON array of slide objects ({archetype, ...tokens})")
+    sb.add_argument("--brand", help="brand.json for the style block (default: shipped tokens)")
+    sb.add_argument("-o", "--out", help="write the .fodp here (default: stdout)")
+    sb.set_defaults(_mod="slide", _func="cmd_slide_build")
+
     gr = sub.add_parser("graph", help="the devant code/intent graph (index.db)")
     gsub = gr.add_subparsers(dest="gcmd", required=True)
 

@@ -17,9 +17,11 @@ The intent CLI is `devant`. The rendering engine is the LibreOffice CLI (`soffic
 ## The pipeline (why it's shaped this way)
 **The only deliverable is `<name>.pptx`.** The `.fodp` (hand-authored source) and the `.pdf`
 (internal visual gate) are throwaway intermediates — author/render them in a **temp dir** and
-delete them, so a slide request leaves exactly one file in the user's folder. Author each slide as
-**flat ODF-presentation XML (`.fodp`)** by hand — the same competency devant uses to author
-`.drawio` XML — then convert with `soffice`:
+delete them, so a slide request leaves exactly one file in the user's folder. Author a compact
+per-slide **spec** (JSON) and let `devant slide-build` compute the `.fodp` geometry - deterministic,
+aligned and margin-safe by construction (placing absolute-cm boxes is not the model's job); it
+embeds the brand style block for you. Hand-author flat ODF XML only for a genuinely bespoke slide,
+via the spec's `raw` escape. Then convert with `soffice`:
 - `soffice --headless --convert-to pptx --outdir <docs/slides> <work>/<deck>.fodp` → the **editable
   deliverable** kept in the repo (opens in PowerPoint / Google Slides / Impress). devant does NOT
   read your edits back: a re-run regenerates the deck from the story + brand and overwrites this
@@ -47,13 +49,18 @@ cartoon — by construction, rather than hoping a template avoids them.
    `devant slide-styles [--brand PATH]` and paste its output as the deck's `<office:automatic-styles>`
    block. Start from `references/brand-sample.fodp` for archetype GEOMETRY only: its style block IS
    `slide-styles`' default output (test-enforced, so it can't drift) — reuse those styles, don't
-   freehand new ones.
-3. **Author the `.fodp` in a temp dir** (`WORK=$(mktemp -d)`; write `$WORK/<name>.fodp`) on the
-   **fixed 28 × 15.75 cm canvas** (16:9), everything inside a 1.6 cm margin. **Prefer to visualize,
-   not narrate** — carry the idea with an *in-slide diagram* (a flat flow of boxes + arrows, a
-   milestone row, a compare, numbered steps, a bar mark), not a paragraph. Compose from the
-   archetypes (title, section divider, milestone-flow, metric/outcome, two-column compare,
-   three-point, **process-flow**). Every icon/diagram is **flat geometric primitives**
+   freehand new ones. (`slide-build` embeds that block automatically; you paste it by hand only
+   for a `raw`-authored deck.)
+3. **Write a compact spec, not XML** (`WORK=$(mktemp -d)`). Author `$WORK/spec.json` - a JSON array
+   of slide objects, one per slide, each `{"archetype": "...", ...content tokens}`. **Prefer to
+   visualize, not narrate** - pick the archetype that *shows* the idea: `title`, `section-divider`,
+   `milestone-flow` (N-card flow), `metric` (hero stat + `src`, or a title/body outcome),
+   `two-column-compare`, `three-point`, `process-flow`. Then `devant slide-build $WORK/spec.json
+   [--brand $WORK/brand.json] -o $WORK/<name>.fodp` emits the whole `.fodp` on the fixed canvas with
+   deterministic, margin-safe geometry (no hand-placed coordinates) and validates the spec (an
+   unknown archetype or a missing field fails loud). For a one-off the archetypes can't express, add
+   a `{"archetype": "raw", "fodp": "<draw:page>...</draw:page>"}` item and hand-author just that
+   page. Every icon/diagram is **flat geometric primitives**
    (`draw:rect`/`draw:ellipse`/`draw:line`/`draw:polyline` filled in brand colours, arrows via
    `draw:line` with `marker-end`) or a simple single-colour inline SVG path — never a cartoon, 3-D,
    or emoji glyph. These diagrams live *inside the slide*; do NOT emit a standalone `.drawio`
@@ -90,7 +97,9 @@ cartoon — by construction, rather than hoping a template avoids them.
   gradient, **no drop-shadow**, **no cartoon/3-D icon**; the neutral base carries it with the one
   accent used sparingly; the key idea is *shown* (an in-slide diagram/flow), not just written;
   **nothing overflows the 1.6 cm margin** (LibreOffice fixes the canvas at 28 × 15.75 cm, see traps).
-  Fix in the XML and re-render; **loop max 3 rounds**, then deliver.
+  Fix the spec (or a `raw` page) and re-render; **one vision pass + at most one corrective round**
+  - geometry is deterministic now, so trust the layout; the pass catches text overflow and font
+  substitution (dec-031), not alignment. Then deliver.
 - **(e)** Confirm the `.pptx` is a real editable deck: `unzip -l <name>.pptx` shows
   `ppt/slides/slide1.xml …` (one per slide).
 - **(f)** **Clean up:** `rm -rf "$WORK"`, then `ls docs/slides/` shows **only `<name>.pptx`**, no
