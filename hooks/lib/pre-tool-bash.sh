@@ -9,5 +9,13 @@ LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 dv_enabled || exit 0
 dv_has_devant || exit 0
-python3 "$LIB/guard_bash.py"
+# Only spawn the python guard when the command mentions git. The hooks.json `if: "Bash(git *)"`
+# gate used to do this, but that matcher is prefix-anchored and never saw through sudo/env/VAR=
+# wrappers — so `sudo git push` / `FOO=1 git push` bypassed the guard entirely while the tests
+# "proved" they were denied. Filtering here (on a plain 'git' substring, which the tests drive)
+# keeps the perf win AND actually covers wrapper-prefixed git.
+input="$(cat)"
+case "$input" in
+  *git*) printf '%s' "$input" | python3 "$LIB/guard_bash.py" ;;
+esac
 exit 0

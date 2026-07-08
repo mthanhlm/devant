@@ -18,14 +18,21 @@ goes only into the local intent graph — never commit anything.
   `node -e "require('elkjs')"` (with `NODE_PATH="${CLAUDE_PLUGIN_DATA}/node_modules"`) — if it
   fails: `mkdir -p "${CLAUDE_PLUGIN_DATA}" && cd "${CLAUDE_PLUGIN_DATA}" && npm i elkjs`. If npm
   is missing, continue degraded — diagrams still ship hand-laid-out.
-- **Preview renderer (diagrams, required for the visual gate, dec-022/dec-023):** ensure
-  chrome-headless-shell in the plugin's data dir — the ONLY renderer `devant drawio-preview`
-  uses (system Chrome/Edge is never consulted). If
-  `ls "${CLAUDE_PLUGIN_DATA}/browsers/chrome-headless-shell" 2>/dev/null` is empty:
+- **Preview renderer (diagrams only — ASK before the ~150MB download, never auto-fetch):**
+  `devant drawio-preview` renders via chrome-headless-shell in the plugin's data dir (the ONLY
+  renderer it uses — system Chrome/Edge is never consulted). Probe first:
+  `ls "${CLAUDE_PLUGIN_DATA}/browsers/chrome-headless-shell" 2>/dev/null`. If absent, do NOT fetch
+  it during onboard — a repo that never draws a diagram shouldn't pay ~150MB on first run. Ask the
+  user whether to fetch it now (yes only if they expect to draw diagrams); on yes:
   `npx --yes @puppeteer/browsers install chrome-headless-shell@stable --path "${CLAUDE_PLUGIN_DATA}/browsers"`
-  (~150MB into the plugin data dir, no sudo — tell the user what's downloading and why). If npx
-  is missing, continue and say so: the diagram skill's mandatory visual pass will report this as
-  a blocker until onboard is re-run with Node present.
+  (no sudo). Either way the diagram skill's visual pass reports this exact command as a blocker if
+  a draw later needs it, so deferring costs nothing.
+- **Slide renderer (optional, slides only):** the `devant:slide` skill converts its hand-authored
+  `.fodp` decks to an editable `.pptx` + a `.pdf` visual gate via the LibreOffice CLI. Probe
+  `command -v soffice`; if empty, tell the user it's a one-time **system** install (not fetched
+  here — LibreOffice, unlike chrome-headless-shell, isn't a relocatable binary):
+  `apt install libreoffice` / `brew install --cask libreoffice` / the Windows installer. If absent,
+  continue — the slide skill degrades to delivering the `.fodp` (opens in Impress) and says so.
 - `devant graph sync` (builds/refreshes the self-owned index — no external tool, dec-016).
 - **Native guard backstop (dec-019, default-on):** seed the project's `.claude/settings.json` with
   `permissions.deny: ["Bash(git commit*)", "Bash(git push*)", "Bash(git add*)",
@@ -69,12 +76,15 @@ Don't ask anything the scan already answered. Accept "looks right" as confirmati
 Show a compact preview (vision · direction · non-goals · rules · conventions · modules), then on
 confirmation write it with the CLI:
 - `devant add-node --kind vision --id vision-001 --title "…" --body "…"`
-- `devant add-node --kind direction --title "…"` (one per milestone); `devant add-edge <dir> refines vision-001`
-- `devant add-node --kind nongoal --title "…" --body "…"`
+- `devant add-node --kind direction --id dir-001 --title "…"` (one per milestone: dir-001, dir-002, …); `devant add-edge dir-001 refines vision-001`
+- `devant add-node --kind nongoal --id nongoal-001 --title "…" --body "…"`
 - `devant add-node --kind constraint --id <slug> --title "…" --body "<why>" --applies "<glob>" --forbid "<substr>" [--expected "<sanctioned path>"] --severity block|warn`
-- `devant add-node --kind decision --title "…" --body "<why>" [--rejected "…" --why-rejected "…"]`
+- `devant add-node --kind decision --id dec-001 --title "…" --body "<why>" [--rejected "…" --why-rejected "…"]`
 - Link rules/modules to code: `devant link <id> <qualifiedName> --relation constrains|governs|implemented_by`
-Constraint and decision nodes REQUIRE a rationale (`--body`). One confirmation, one write pass.
+Constraint and decision nodes REQUIRE a rationale (`--body`). Give EVERY node a **stable `--id`**
+(dir-001, nongoal-001, dec-001, …) — the header's "never duplicate" holds only if the ids are
+stable, so a re-run updates each node in place instead of appending a second copy of every
+direction/non-goal/decision. One confirmation, one write pass.
 
 ## Annotate the graph (semantic layer, dec-016 P3 / dec-017)
 After the index is built and intent is seeded, add the semantic layer — taxonomy-first hybrid:
@@ -82,10 +92,12 @@ After the index is built and intent is seeded, add the semantic layer — taxono
    fix ~30–60 concept tags (auth, billing, retry, migration, …). Keep the list in this chat.
 2. **Hot symbols (you):** `devant graph hot --limit <5% of symbols>` — annotate each with
    `devant graph annotate --key <key> --type symbol --summary "<1–2 sentences>" --concepts a,b`.
-3. **The tail (Haiku fan-out, dec-017):** spawn subagents on Haiku with the FIXED taxonomy in
-   their prompt — they read files and emit `devant graph annotate` calls; they apply the
-   vocabulary, never invent tags. Runs by default: state the token estimate (files × ~10
-   tok/line) in one line and proceed. Ask first only when the estimate is large (> ~1M read
-   tokens) — then offer to scope (hot modules only) or skip. Re-runs are incremental
-   (`--source-hash` skips unchanged).
+3. **The tail (cheap-model fan-out, dec-017):** spawn annotation subagents with the FIXED taxonomy
+   in their prompt — they read files and emit `devant graph annotate` calls, applying the
+   vocabulary, never inventing tags. Prefer a cheap model (Haiku) if the session can target one by
+   agent type; otherwise they run on the **session model** — say which, because the cost differs by
+   ~an order of magnitude and this fan-out reads the whole tail of the repo. ALWAYS print an
+   out-of-pocket estimate before spawning (files × ~10 tok/line read, at the annotation model's
+   rate), and **ask first once it's non-trivial (≳200k read tokens)** — then offer to scope (hot
+   modules only) or skip. Re-runs are incremental (`--source-hash` skips unchanged).
 Semantic queries then work: `devant graph search <concept>`, `devant graph impact <sym> --semantic`.

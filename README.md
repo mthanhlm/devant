@@ -48,6 +48,10 @@ That's the whole surface. No menu of commands to learn.
 - **Node.js (optional)** — only for diagram auto-layout (elkjs, installed into the plugin's
   data dir by `/devant:onboard`). Code indexing needs nothing beyond python3: the devant graph
   is built in (dec-016).
+- **LibreOffice / `soffice` (optional)** — only for the `devant:slide` skill, which renders its
+  `.fodp` decks to editable `.pptx` + `.pdf`. A one-time system install (`apt install libreoffice`
+  / `brew install --cask libreoffice`); not auto-fetched — unlike Chrome, LibreOffice isn't a
+  relocatable binary. Absent → the slide skill hands back the `.fodp` (opens in Impress) and says so.
 - Iterate without reinstalling: `claude --plugin-dir ~/lam/devant` loads the working tree as the plugin for that session; `/reload-plugins --force` applies hook/manifest edits mid-session, `/reload-skills` re-scans skill edits.
 - Smoke the SessionStart wiring headlessly: `claude --init-only --debug "hooks"`.
 - Release gate: `claude plugin validate . --strict` must pass before every release.

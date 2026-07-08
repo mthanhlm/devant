@@ -4,7 +4,7 @@ user-invocable: false
 context: fork
 agent: Explore
 effort: xhigh
-allowed-tools: Bash(devant *)
+allowed-tools: Bash(devant *), Bash(git diff *)
 description: devant specialist (router/code-invoked): INDEPENDENT read-only sanity review of a HIGH-RISK change before done — auth, migrations, concurrency, security paths, public APIs, architecture, wide blast radius. Never edits.
 ---
 
@@ -20,6 +20,10 @@ stop — the `code` skill's own §6 self-check covers those; an extra review pas
 before approval are `devant:debate`'s job — this skill judges code diffs after implementation.
 
 ## What to judge (ground each call in the diff + the devant graph, not assumption)
+Obtain the change yourself — `git diff` (or `git diff --stat` for scope) — and review from that, not
+from the code skill's narration; seeing what actually changed (vs the post-edit file alone) is what
+lets you meet the "pre-existing vs new" bar, and reading it first-hand is the whole point of an
+independent pass.
 - **Correctness:** does it meet the real requirement? Each acceptance criterion mapped to code AND a
   test that proves it? Edge/failure cases and regressions considered? Pre-existing vs new failures
   distinguished?

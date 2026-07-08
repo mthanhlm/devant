@@ -82,25 +82,45 @@ def _extract_notebook(text):
 
 # ------------------------------------------------------------------ resources
 
-_RES_PATTERNS = [
+# env/url/route are single-line literals — scan line-by-line.
+_RES_PATTERNS_LINE = [
     ("env", re.compile(r"""(?:os\.environ(?:\.get)?[([]|getenv\(|process\.env\.|os\.Getenv\()\s*['"]?([A-Z][A-Z0-9_]{2,})""")),
     ("url", re.compile(r"""['"](https?://[^'"\s]{4,})['"]""")),
     ("route", re.compile(r"""['"](/(?:api|v\d+)/[A-Za-z0-9_/{}:.-]+)['"]""")),
-    ("sql_table", re.compile(r"""(?i)\b(?:FROM|INTO|UPDATE|JOIN)\s+([a-z_][a-z0-9_]{2,})\b""")),
 ]
+
+# sql_table is extracted ONLY from a string literal that is actually a SQL statement. Matching a
+# bare FROM/JOIN/INTO/UPDATE word anywhere fabricated tables out of ordinary prose
+# (e.g. "update stats from cache") and, being line-by-line, missed real multi-line queries — both
+# poison the resource-coupling edges `graph impact` builds. Requiring a statement shape fixes both.
+_STRING_LITERAL = re.compile(
+    r'"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'|`[^`]*`|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'')
+_SQL_STMT = re.compile(
+    r"(?is)\b(?:select\b.+?\bfrom|insert\s+into|update\s+[a-z_][\w.]*\s+set|delete\s+from"
+    r"|create\s+(?:table|view)|alter\s+table)\b")
+_SQL_TABLE = re.compile(r"(?i)\b(?:FROM|INTO|JOIN|UPDATE)\s+([a-z_][a-z0-9_.]{2,})\b")
 
 
 def _scan_resources(text, owner_of_line):
     out = []
     for i, line in enumerate(text.split("\n"), 1):
-        for kind, pat in _RES_PATTERNS:
-            if kind == "sql_table" and (
-                    re.match(r"\s*(from|import|use|using|require)\b", line)
-                    or ('"' not in line and "'" not in line)):
-                continue  # `from X import` / prose lines are not SQL (dec-016 review M3)
+        for kind, pat in _RES_PATTERNS_LINE:
             for m in pat.finditer(line):
                 out.append({"src": owner_of_line(i), "kind": kind, "name": m.group(1),
                             "access": "unknown", "line": i})
+    for sm in _STRING_LITERAL.finditer(text):
+        s = sm.group(0)
+        if not _SQL_STMT.search(s):
+            continue  # a string that isn't a SQL statement can't name a table (kills prose FPs)
+        line = text.count("\n", 0, sm.start()) + 1
+        seen = set()
+        for tm in _SQL_TABLE.finditer(s):
+            name = tm.group(1)
+            if name.lower() in seen:
+                continue
+            seen.add(name.lower())
+            out.append({"src": owner_of_line(line), "kind": "sql_table", "name": name,
+                        "access": "unknown", "line": line})
     return out
 
 

@@ -76,7 +76,18 @@ def _concentric_target(b, hosts):
     return None
 
 
-LABEL_LINE_H = 15  # draw.io line height at its default Helvetica 12px
+def _font_px(style):
+    """The Helvetica fontSize (px) a cell's style declares — draw.io's default 12 when unset.
+    The collision estimate must scale with this: a 15px label is 25% wider than the 12px the
+    linter once assumed, so a larger font is exactly where a real spill would slip the gate."""
+    try:
+        return float(style.get("fontSize") or 12)
+    except (TypeError, ValueError):
+        return 12.0
+
+
+def _line_h(size):
+    return 1.25 * size
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _BREAK_RE = re.compile(r"<br\s*/?>|</div>\s*<div[^>]*>|</p>\s*<p[^>]*>", re.I)
@@ -114,13 +125,14 @@ def _vertex_label_rect(box, cell):
     if not lines:
         return None
     st = _drawio_style(cell.get("style"))
-    widths = [_text_w(ln) for ln in lines]
+    size = _font_px(st)
+    widths = [_text_w(ln, size) for ln in lines]
     if st.get("whiteSpace") == "wrap":
         cap = max(box.w - 8, 20)
         n = sum(max(1, int((w + cap - 1) // cap)) for w in widths)
-        lw, lh = min(max(widths), cap), n * LABEL_LINE_H
+        lw, lh = min(max(widths), cap), n * _line_h(size)
     else:
-        lw, lh = max(widths), len(lines) * LABEL_LINE_H
+        lw, lh = max(widths), len(lines) * _line_h(size)
     return (box.x + box.w / 2 - lw / 2, box.y + box.h / 2 - lh / 2, lw, lh)
 
 
@@ -319,8 +331,9 @@ def cmd_drawio_lint(args):
         t = 0.5 + max(-1.0, min(1.0, gx)) / 2.0  # straight-line approximation of the edge path
         sx, sy = src.x + src.w / 2, src.y + src.h / 2
         tx, ty = tgt.x + tgt.w / 2, tgt.y + tgt.h / 2
-        lw = max(_text_w(ln) for ln in lines)
-        lh = len(lines) * LABEL_LINE_H
+        esize = _font_px(_drawio_style(label_cell.get("style")))
+        lw = max(_text_w(ln, esize) for ln in lines)
+        lh = len(lines) * _line_h(esize)
         rect = (sx + t * (tx - sx) + off[0] - lw / 2, sy + t * (ty - sy) + off[1] - lh / 2, lw, lh)
         # pad 6: the approximation can drift from the routed path — only flag clear hits
         label_rects.append((rect, label_cell.get("id"), None, edge.get("parent"), 6))

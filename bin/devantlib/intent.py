@@ -9,8 +9,9 @@ import sqlite3
 import subprocess
 import sys
 
-from .common import (EDGE_KINDS, KINDS, SPECIALISTS, _active, _content_tokens, connect,
-                     ensure_schema, load_meta, next_id, now, path_match, project_dir)
+from .common import (EDGE_KINDS, KINDS, SPECIALISTS, SUBINVOKED_SPECIALISTS, _active,
+                     _content_tokens, connect, ensure_schema, load_meta, next_id, now,
+                     path_match, project_dir)
 from .guard import evaluate_guard
 
 
@@ -273,10 +274,12 @@ def _relevant(conn, path=None, area=None):
         if r["kind"] == "decision":
             if r["status"] == "superseded":  # retired — its successor speaks now
                 continue
-            # surface a decision only when the prompt overlaps its topic (title/body/rejected),
-            # so a revived rejected path is challenged; skip generic accepted decisions.
+            # surface a decision only when the prompt overlaps its topic (title + rejected
+            # alternative — NOT the rationale prose, mirroring the constraint match below), so a
+            # revived rejected path is challenged without a long decision body leaking the whole
+            # essay in on a shared stopword-grade token.
             if area and _content_tokens(area) & _content_tokens(
-                    (r["title"] or "") + " " + (r["body"] or "") + " " + (m.get("rejected") or "")):
+                    (r["title"] or "") + " " + (m.get("rejected") or "")):
                 out.append(r)
             continue
         if r["status"] != "active":
@@ -455,6 +458,27 @@ def _graph_dangling(conn):
     return edges, links
 
 
+def _index_stale(gconn):
+    """True when the git HEAD moved since the index recorded its sync watermark — so impact/
+    affected may answer from a pre-move graph. Cheap (one git call); False when not a git repo,
+    no index, or no watermark yet."""
+    if gconn is None:
+        return False
+    try:
+        row = gconn.execute("SELECT value FROM meta WHERE key='synced_head'").fetchone()
+    except sqlite3.Error:
+        return False
+    synced = row["value"] if row else None
+    if not synced:
+        return False
+    try:
+        cur = subprocess.run(["git", "-C", project_dir(), "rev-parse", "HEAD"],
+                             capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return cur.returncode == 0 and cur.stdout.strip() != synced
+
+
 def cmd_dangling(args):
     conn = connect(args)
     if conn is None:
@@ -470,14 +494,21 @@ def cmd_dangling(args):
                 (lk["symbol"], name)).fetchone()
             if hit is None:
                 code_dangling.append(lk)
+    # stale_index: the git HEAD moved since the last `graph sync` recorded its watermark, so
+    # impact/affected answer from a pre-move graph (a pull/checkout that added callers, with no
+    # Claude-tool edit to trigger a resync). Was hard-coded False — a promise nothing computed.
+    stale = _index_stale(gconn)
     if args.json:
         print(json.dumps({
             "code_dangling": [dict(r) for r in code_dangling],
             "edge_dangling": [dict(r) for r in bad_edges],
             "link_node_missing": [dict(r) for r in bad_links],
-            "stale_index": False,
+            "stale_index": stale,
         }))
         return 0
+    if stale:
+        print("Index STALE: git HEAD moved since the last sync — run `devant graph sync` before "
+              "trusting impact/affected.")
     if code_dangling:
         print("Dangling intent->code links (symbol no longer resolves — re-link or update):")
         for lk in code_dangling:
@@ -645,7 +676,7 @@ def _usage_counts():
                     counts[first[0]] += 1
     except FileNotFoundError:
         pass
-    dead = [s for s, c in counts.items() if c == 0 and s != "onboard"]
+    dead = [s for s, c in counts.items() if c == 0 and s not in SUBINVOKED_SPECIALISTS]
     return counts, dead
 
 
@@ -710,6 +741,69 @@ def cmd_log(args):
     os.makedirs(state, exist_ok=True)
     with open(os.path.join(state, "usage.log"), "a") as fh:
         fh.write("%s %s\n" % (args.specialist, " ".join(args.intent or [])))
+    return 0
+
+
+def cmd_export(args):
+    """Dump the intent graph (nodes+edges+links) as JSON. The store is normally local-only and
+    gitignored, so a fresh clone / a teammate starts with no rules; committing this export and
+    `devant import`-ing it makes 'what NOT to do' travel with the repo (the collaboration artifact)."""
+    conn = connect(args)
+    if conn is None:
+        sys.stderr.write("devant: no intent graph to export (run /devant:onboard first).\n")
+        return 1
+    data = {
+        "nodes": [{**dict(r), "meta": load_meta(r)} for r in
+                  conn.execute("SELECT * FROM node ORDER BY kind, id").fetchall()],
+        "edges": [dict(r) for r in conn.execute("SELECT src, kind, dst, note FROM edge").fetchall()],
+        "links": [dict(r) for r in
+                  conn.execute("SELECT node, relation, symbol, path, cg_id, note FROM code_link").fetchall()],
+    }
+    out = json.dumps(data, indent=2, ensure_ascii=False)
+    if getattr(args, "out", None):
+        with open(args.out, "w", encoding="utf-8") as fh:
+            fh.write(out + "\n")
+        print(args.out)
+    else:
+        print(out)
+    return 0
+
+
+def cmd_import(args):
+    """Load an exported intent graph, upserting by id (existing nodes are updated + journaled, not
+    duplicated). Lets a fresh clone / teammate inherit the recorded decisions, constraints, and
+    non-goals instead of re-running the onboarding interview."""
+    conn = connect(args, create=True)
+    try:
+        with open(args.file, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        sys.stderr.write("devant: cannot read export %s: %s\n" % (args.file, exc))
+        return 1
+    n_nodes = n_edges = n_links = 0
+    for nd in data.get("nodes", []):
+        if not (nd.get("id") and nd.get("kind") and nd.get("title")):
+            continue  # skip a malformed row rather than crash the whole import
+        meta = nd.get("meta")
+        _insert_node(conn, nd["id"], nd["kind"], nd["title"], nd.get("body"),
+                     nd.get("status") or "active", json.dumps(meta) if meta else None)
+        n_nodes += 1
+    for e in data.get("edges", []):
+        if not (e.get("src") and e.get("kind") and e.get("dst")):
+            continue
+        conn.execute("INSERT OR IGNORE INTO edge(src, kind, dst, note) VALUES(?,?,?,?)",
+                     (e["src"], e["kind"], e["dst"], e.get("note")))
+        n_edges += 1
+    for lk in data.get("links", []):
+        if not lk.get("node"):
+            continue
+        conn.execute("INSERT OR REPLACE INTO code_link(node, relation, symbol, path, cg_id, note) "
+                     "VALUES(?,?,?,?,?,?)",
+                     (lk["node"], lk.get("relation") or "implemented_by", lk.get("symbol") or "",
+                      lk.get("path") or "", lk.get("cg_id"), lk.get("note")))
+        n_links += 1
+    conn.commit()
+    print("imported %d nodes, %d edges, %d links" % (n_nodes, n_edges, n_links))
     return 0
 
 

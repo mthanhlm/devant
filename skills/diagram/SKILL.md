@@ -9,15 +9,26 @@ description: devant specialist (router-invoked): draw professional draw.io diagr
 # devant: diagram
 
 Draw a diagram that a developer AND a non-technical stakeholder can both read at a glance — solid,
-consistent, professional. Two supported kinds:
-- **Architecture** — C4 container/component style (systems, containers, data stores, externals).
-- **Activity flow** — standard UML activity diagram (start/end, actions, decisions, fork/join,
-  optional swimlanes).
+consistent, professional. Two supported kinds, each at one of two **altitudes** (guide §0):
+*idea-level* (a ~15-second pitch of the idea, the default for plan/design asks) or
+*engineering-complete* (every branch/loop/error, opt-in when detail is asked for).
+- **Architecture** — C4: idea-level is Level 1 (System Context); engineering-complete is
+  container/component (systems, containers, data stores, externals).
+- **Activity flow** — idea-level is a milestone flow (major phases); engineering-complete is a full
+  UML activity diagram (start/end, actions, decisions, fork/join, optional swimlanes).
 
 The intent CLI is `devant`.
 
 ## Do this
-1. **Pick the kind** from the request (architecture vs. activity flow). If ambiguous, ask one line.
+1. **Pick the altitude, then the kind** (`references/drawio-guide.md` §0). *Altitude* first:
+   **idea-level** (default when the ask is a pitch — a plan, design, idea or concept for a business/
+   non-technical audience to grasp in ~15s) vs **engineering-complete** (opt-in when the ask says
+   "show detail / the full flow / how it works" or the audience is engineers). Then the *kind*:
+   architecture vs. activity flow. Idea-level architecture = C4 Level 1 (System Context: the system
+   as one box + actors + externals, plain-language labels, a one-line caption); idea-level process =
+   a milestone flow (3–6 phases, each encapsulating its sub-steps — never an activity diagram with
+   branches deleted). Ambiguous altitude → default to idea-level and say so in one line; ambiguous
+   kind → ask one line.
 2. **Ground the content in the real code — never invent.** Use `devant graph explore`/`devant graph search`
    to get the actual containers, modules, data stores, and the real call/flow path the diagram
    depicts. A box or step that doesn't map to something in the graph doesn't belong on the diagram.
@@ -54,7 +65,12 @@ The intent CLI is `devant`.
    delivery on this — no report-only, no "looks fine to me":
    - **(a) Well-formed XML** — `python3 -c "import xml.dom.minidom,sys; xml.dom.minidom.parse(sys.argv[1])" <file>`.
    - **(b) Layout** — run `devant layout <file> --preset <p>` (step 4) so node placement comes from
-     ELK, not hand-tuning. Skip only if node/elkjs is genuinely unavailable.
+     ELK, not hand-tuning. Skip only if node/elkjs is genuinely unavailable. Note: `devant layout`
+     drops hand-placed edge waypoints (`Array as="points"`) since they go stale once ELK moves the
+     nodes — so carry durable routing (loops, obstruction-avoidance) in the edge **style**
+     (`exitX/exitY/entryX/entryY`), which survives layout; reserve a raw waypoint for a genuine
+     obstruction, add it AFTER the final layout, and don't re-run layout on a pure-waypoint fix (it
+     only re-strips it).
    - **(c) The lint gate — ALWAYS, stdlib, no external tool.** Run
      `devant drawio-lint <file> --fix`. It auto-fixes what it
      safely can (straightens off-grid nodes, spreads overlapping ones) and **exits non-zero** while

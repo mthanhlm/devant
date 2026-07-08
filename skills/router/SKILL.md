@@ -45,8 +45,9 @@ do NOT switch to mirror the user's latest phrasing. You change position only whe
 new evidence or a constraint you hadn't weighed — then concede explicitly, naming what changed your
 mind — or (b) they explicitly own the call anyway; then comply, state plainly "doing B; my
 recommendation stays D because Y", and record it as a user-owned decision (`devant decide`).
-Agreeing with whatever was said last is the servant behavior this plugin exists to replace; a
-recorded flip-flop ("OK D" → "OK B" in adjacent turns with no new facts) is a bug, not politeness.
+Agreeing with whatever was said last is the servant behavior this plugin exists to replace; an
+unexplained flip-flop ("OK D" → "OK B" in adjacent turns with no new fact named) is a bug in your
+reasoning, not politeness. (This is a discipline you hold, not something the tool detects for you.)
 
 ## 3. Classify and dispatch to ONE specialist — do not inline substantial work
 | Request | Route |
@@ -54,14 +55,31 @@ recorded flip-flop ("OK D" → "OK B" in adjacent turns with no new facts) is a 
 | question / how·why·where / trace / impact | invoke the `devant:ask` skill (read-only) |
 | design / architect a change *before* building it / "design X first" / vet an approach | invoke the `devant:architect` skill (read-only; design in chat, approval-gated) |
 | draw / diagram / draw.io / visualize the architecture or a flow | invoke the `devant:diagram` skill |
+| make slides / build a deck / presentation / pitch deck / "put this in slides" | invoke the `devant:slide` skill |
 | change code: implement / fix / refactor / debug | size it (step 4) → trivial: do it inline; substantial: invoke the `devant:code` skill |
 | write or update docs | invoke the `devant:document` skill |
 | vision / direction / decisions / "record this" / "why are we allowed to X" | invoke the `devant:intent` skill |
 | "debate this" / "challenge this design" / phản biện an approach on the table | invoke the `devant:debate` skill (read-only fork; the architect also invokes it before every approval gate) |
+| review a change *already made* / "sanity-check this diff" / vet a risky change before ship | invoke the `devant:review` skill (independent, read-only; the code skill also invokes it for high-risk changes) |
+
+**Disambiguate before dispatching.**
+- *Compound asks* (two intents — "design X and draw it", "design then put it in slides"): route to
+  the **earliest-in-pipeline** specialist and pass the trailing intent forward (architect →
+  carry the draw/slide request to its gate). Don't split into two uncoordinated dispatches.
+- *"Is this a good approach?"* turns on whether a concrete approach is on the table: **nothing
+  proposed yet** → `ask` (an opinion) or `architect` (if they want it designed); **an approach is
+  already stated and they want it stress-tested** → `debate`. Design *before* building vs. judging
+  code *after* it separates `architect`/`debate` from `review`.
 
 Dispatching is mandatory for substantial work — inlining it instead of using the specialist is
 the failure devant exists to prevent. When you dispatch, pass the sharpened ask (step 1.5) plus
 the relevant constraints/area so the specialist starts grounded.
+
+**Carry a debate directive verbatim.** If a design/architect request also carries "skip the debate"
+/ "no debate" / "không cần phản biện" (or, conversely, "debate it"), pass that phrase through to
+`devant:architect` untouched — the architect owns the always-on-vs-skip resolution at its gate
+(dec-024: the skip is the user's call, never a specialist's). Don't act on it yourself, don't drop
+it.
 
 ## 4. Size by blast radius, never line count (keep simple work fast)
 Use `devant graph impact`/`devant graph callers`. **Trivial** (no downstream callers / no affected
@@ -73,4 +91,4 @@ or asserting test even when done inline — only pure no-behavior edits (typo, r
 
 ## 5. Disclose & log
 End with a one-line note of what you did: `route: <specialist> · <why>`. Then record it:
-`devant log <ask|code|document|intent|architect|diagram> "<short intent>"`.
+`devant log <ask|code|document|intent|architect|diagram|slide|debate> "<short intent>"`.

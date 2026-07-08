@@ -74,14 +74,27 @@ approval — to the same bar as devant's diagram guide: **show enough that the r
 walkthrough** (every real branch, loop, and error path — a loop drawn as a loop) and no more. A
 before/after that raises the obvious "but what about…?" questions hasn't done its job.
 
-**Before the gate, submit the design to independent cross-examination — always, no size gate
-(dec-024).** Invoke the `devant:debate` skill with the design package (goal, current, proposed,
-critical decisions, blast radius — not your reasoning for them). Answer each challenge with
-evidence: **concede** (amend the design, say what changed) or **defend** (restate the trade-off
-and why it holds). Re-invoke for the next round until both sides accept or 3 rounds total are
-spent; whatever is still contested becomes an open question the user decides. The gate
-presentation then carries a **challenged / conceded / defended / open** table so approval happens
-with the debate in view.
+**Before the gate, cross-examine the design — on by default for every design, no size gate
+(dec-024).** The only skip is an explicit user act, and it is the user's call, never yours:
+- **Resolve whether debate runs**, in this order: a per-request "debate it" (re-enable) beats a
+  per-request "skip the debate" / "no debate" / "không cần phản biện" (the router carries the phrase
+  verbatim to you), which beats the default (on). You NEVER self-certify a design as too small or
+  safe to challenge. If the user skipped it, run no debate and put one honest line in the gate —
+  "debate skipped by you — say 'debate it' to run it" — so an un-vetted design is never shown as
+  vetted.
+- **When it runs,** invoke the `devant:debate` skill with the design package (goal, current,
+  proposed, critical decisions, blast radius) PLUS a **compact §1 grounding citation list** — the
+  symbols you touched, the data-model shape (or "N/A — stateless"), the blast-radius sites, and the
+  intent-rule ids — so the debater verifies your grounding instead of re-deriving it. Pass the
+  facts, not your reasoning for them.
+- **One round by default.** Answer each challenge with evidence: **concede** (amend the design, say
+  what changed) or **defend** (restate the trade-off and why it holds). Re-invoke for a round 2
+  ONLY when a **kill-shot or load-bearing** challenge is left unsettled — you defended it, or you
+  conceded with an amendment that materially changed the design (which earns one verification
+  pass). Refinements and minor concessions don't escalate. Cap 3 rounds (dec-024); whatever is
+  still contested becomes an open question the user decides.
+- The gate presentation carries a **severity / challenged / conceded / defended / open** table
+  (severity = kill-shot / load-bearing / refinement) so approval happens with the debate in view.
 
 Then **stop at an explicit approval gate.** You do not write code, you do not scaffold, and you do
 not drop a plan/spec/design `.md` into the repo — devant keeps designs in chat and captures durable

@@ -117,6 +117,14 @@ def build_parser():
     lg.add_argument("intent", nargs="*")
     lg.set_defaults(_mod="intent", _func="cmd_log")
 
+    ex = sub.add_parser("export", help="dump the intent graph as JSON (commit it to share rules across a team/clone)")
+    ex.add_argument("-o", "--out", help="write to this path (default: stdout)")
+    ex.set_defaults(_mod="intent", _func="cmd_export")
+
+    im = sub.add_parser("import", help="load an exported intent graph (upserts nodes/edges/links by id)")
+    im.add_argument("file")
+    im.set_defaults(_mod="intent", _func="cmd_import")
+
     dl = sub.add_parser("drawio-lint", help="check/auto-fix a .drawio for grid/overlap/edge/label defects")
     dl.add_argument("file")
     dl.add_argument("--fix", action="store_true", help="grid-snap + spread overlaps in place")
@@ -136,6 +144,20 @@ def build_parser():
     dp.add_argument("file")
     dp.add_argument("-o", "--out", help="output PNG path (default: <file>.preview.png)")
     dp.set_defaults(_mod="drawio", _func="cmd_drawio_preview")
+
+    ss = sub.add_parser("slide-styles",
+                        help="emit the ODF <office:automatic-styles> block from brand tokens")
+    ss.add_argument("--brand", help="path to a brand.json (default: the shipped Ink & Signal tokens)")
+    ss.set_defaults(_mod="slide", _func="cmd_slide_styles")
+
+    sl = sub.add_parser("slide-lint",
+                        help="anti-slop gate on a .fodp deck (off-brand colour / fabricated stat / decorative chart)")
+    sl.add_argument("file")
+    sl.add_argument("--brand", help="brand.json to check colours against (default: shipped tokens)")
+    sl.add_argument("--allow-number", action="append", default=[],
+                    help="a hero figure value to accept (repeatable)")
+    sl.add_argument("--allow-chart", action="store_true", help="accept a bar-like graphic on a page")
+    sl.set_defaults(_mod="slide", _func="cmd_slide_lint")
 
     gr = sub.add_parser("graph", help="the devant code/intent graph (index.db)")
     gsub = gr.add_subparsers(dest="gcmd", required=True)

@@ -45,6 +45,9 @@ refactors or reformatting. Remove only the orphans your change created.
 - **Pre-existing vs new:** if the touched suite was already red, state which failures you introduced
   vs inherited — don't claim a regression you didn't cause or hide one you did.
 - **Lint/typecheck the changed files.** Report honestly, including failures.
+- **Show the receipts:** paste the literal command you ran and its verbatim tail output for each
+  check — not a paraphrase, not a bare ✓. "Tests pass" without the command + output is a claim, not
+  evidence; the user must be able to *see* the green, since nothing downstream re-runs it for them.
 - **Green is the exit, not the checklist:** "done" means the verification above actually came back
   green; red you caused is *not* done — loop back and fix, then re-verify. (When retries stop
   teaching you anything new, §5 governs the stop.)

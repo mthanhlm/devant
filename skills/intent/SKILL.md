@@ -16,8 +16,14 @@ The voice of the project's direction and rules. The intent CLI is `devant` (on t
 - `devant direction` — vision → milestones → goals.
 - `devant why <symbol>` — the intent behind a piece of code.
 - `devant constraints --path <p>` / `devant query <text>` — rules and nodes for an area/topic.
+  (`devant constraints` with no `--path` lists every active constraint + non-goal.)
+- `devant show` — the full node inventory / decision log, and the way to find a node's stable id
+  before updating it (`-j` for JSON).
 
 ## Write (every decision/constraint needs a rationale `--body`)
+- **Search before you record.** Run `devant query <topic>` (or `devant show`) first; if the choice
+  is already captured, update that node by its **id** instead of creating a near-duplicate — a
+  second node for the same decision splits the record and re-litigates what was settled.
 - Record a decision: `devant decide --title "…" --body "<why>" [--rejected "…" --why-rejected "…"]
   [--realizes <goal>] [--establishes <constraint>] [--supersedes <old> --exempt <path>]`.
 - Add a rule: `devant add-node --kind constraint --id <slug> --title "…" --body "<why>"
@@ -27,6 +33,10 @@ The voice of the project's direction and rules. The intent CLI is `devant` (on t
   to actually relax a rule, pass the new `--severity`/`--exempt` explicitly, or use `decide`.)
 - Link intent to code: `devant link <id> <qualifiedName> --relation implemented_by|governs|constrains`.
 - Keep the graph honest: `devant lint` (broken edges, rules with no teeth/scope), `devant dangling`.
+- **Share across clones/team:** `devant export -o devant-intent.json` (commit that file) and, on a
+  fresh clone, `devant import devant-intent.json` — decisions/constraints/non-goals then travel
+  with the repo instead of re-running onboarding. Import upserts by id (no duplicates); the live
+  `.devant/` store stays local and gitignored.
 
 ## When to capture
 When a real choice is made or ruled out, record it so it isn't re-litigated later. Don't record

@@ -21,6 +21,10 @@ The intent CLI is `devant`.
 - **Intent** — for "why does X exist / why this way": `devant why <symbol>`. For "where are we
   headed": `devant direction`. For "what are the rules here": `devant constraints --path <p>` or
   `devant query <text>`.
+- **A graph miss is not a dead end** — if `explore`/`search` returns `no matches` (or the index is
+  empty, or `why` finds no intent), broaden the query once, then fall back to reading the real
+  files (Read/Grep) and answer from those; say the graph was cold rather than reporting "not
+  found". A partial-language or un-onboarded repo is exactly when the tool must not stall.
 - Answer concretely, citing the files/symbols (the graph) and decisions (intent) you relied on.
   If something isn't grounded in either, say so — flag it as an assumption, don't assert it.
 - If the question rests on a premise the code or intent contradicts, challenge it with that

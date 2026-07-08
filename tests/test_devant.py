@@ -8,6 +8,7 @@ guard/why/supersede/lint behavior is tested end-to-end through the CLI against a
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -237,6 +238,59 @@ class CliEndToEnd(unittest.TestCase):
         self.assertEqual(self.guard("src/aws.py", key), "deny")       # real code -> hard deny
         self.assertEqual(self.guard("tests/test_x.py", key), "ask")   # test context -> flag, don't block
 
+    def test_log_accepts_every_dispatchable_specialist(self):
+        # the router dispatches slide/debate (table rows) and code invokes review — `devant log`
+        # must accept them all, not error at the disclosure step.
+        for s in ("slide", "debate", "review", "code", "diagram"):
+            r = self.dv("log", s, "did", "x")
+            self.assertEqual(r.returncode, 0, "%s: %s" % (s, r.stderr))
+        counts = json.loads(self.dv("dead-skills", "-j").stdout)["counts"]
+        self.assertEqual((counts["slide"], counts["debate"], counts["review"]), (1, 1, 1))
+
+    def test_dead_skills_excludes_subinvoked_specialists(self):
+        # review/debate are invoked as sub-steps (and onboard via a command), so a zero
+        # router-log count is not "never used" — they must not be flagged; a pure router
+        # route (slide) that is genuinely unused still is.
+        dead = json.loads(self.dv("dead-skills", "-j").stdout)["dead"]
+        for s in ("onboard", "review", "debate"):
+            self.assertNotIn(s, dead)
+        self.assertIn("slide", dead)
+
+    def test_decision_body_prose_does_not_leak_into_area(self):
+        # a decision surfaces on an area query via its title/rejected topic, NOT its rationale
+        # prose — so a long body can't flood the prompt on a shared stopword-grade token.
+        self.dv("decide", "--title", "Adopt event sourcing", "--id", "dec-body",
+                "--body", "we may switch storage to postgres eventually, but not now")
+        rows = json.loads(self.dv("constraints", "--area", "switch storage to postgres", "-j").stdout)
+        self.assertNotIn("dec-body", [r["id"] for r in rows])   # body-only overlap -> not injected
+        self.dv("decide", "--title", "Switch storage to Postgres", "--body", "perf", "--id", "dec-title")
+        rows = json.loads(self.dv("constraints", "--area", "switch storage to postgres", "-j").stdout)
+        self.assertIn("dec-title", [r["id"] for r in rows])     # title overlap -> still surfaced
+
+    def test_intent_export_import_roundtrip_preserves_enforcement(self):
+        # the collaboration lever: a fresh clone inherits the rules via export/import, and a block
+        # constraint's meta (forbid/applies/severity) survives so the guard still denies.
+        self.dv("decide", "--id", "dec-x", "--title", "Use SQLite", "--body", "single binary",
+                "--rejected", "Postgres", "--why-rejected", "ops weight")
+        self.dv("add-node", "--kind", "constraint", "--id", "con-x", "--title", "no raw sqlite",
+                "--body", "use the repo layer", "--applies", "src/**", "--forbid", "import sqlite3",
+                "--severity", "block")
+        exp = os.path.join(self.proj, "intent.export.json")
+        self.assertEqual(self.dv("export", "-o", exp).returncode, 0)
+        self.assertTrue(os.path.exists(exp))
+        db2 = os.path.join(self.proj, "intent2.db")
+
+        def dv2(*a, stdin=None):
+            return subprocess.run([sys.executable, BIN, "--db", db2, *a], input=stdin,
+                                  capture_output=True, text=True, env=self.env)
+        self.assertEqual(dv2("import", exp).returncode, 0)
+        ids = {n["id"] for n in json.loads(dv2("show", "-j").stdout)["nodes"]}
+        self.assertIn("dec-x", ids)
+        self.assertIn("con-x", ids)
+        g = dv2("guard", "--file=" + os.path.join(self.proj, "src/a.py"), "--content", "-",
+                stdin="import sqlite3\n")
+        self.assertEqual(json.loads(g.stdout)["decision"], "deny")   # rule enforceable after import
+
 
 class HookTests(unittest.TestCase):
     """Run the actual bash hooks end-to-end (the blind spot that let the NUL bug ship)."""
@@ -314,6 +368,16 @@ class HookTests(unittest.TestCase):
         self.assertEqual(b("git status"), "allow")
         self.assertEqual(b("git log --grep=push"), "allow")              # 'push' in option value, not the subcommand
         self.assertEqual(b("ls -la && grep foo bar.txt"), "allow")
+
+    def test_bash_hook_denies_wrapper_prefixed_git_via_script(self):
+        # regression: hooks.json `if: Bash(git *)` never saw through sudo/env/VAR= wrappers, so
+        # these bypassed the guard in production though evaluate_bash "denied" them. The script now
+        # does its own 'git' filtering, so the real hook path denies wrapper-prefixed git too.
+        b = lambda c: self.decision(self.hook("pre-tool-bash.sh", {"tool_name": "Bash", "tool_input": {"command": c}}))
+        self.assertEqual(b("sudo git push origin main"), "deny")
+        self.assertEqual(b("FOO=1 git push"), "deny")
+        self.assertEqual(b("env git commit -m x"), "deny")
+        self.assertEqual(b("ls -la"), "allow")                           # no 'git' -> fast-path allow, no python spawn
 
     def test_stop_hook_emits_note_after_touched(self):
         # dec-019: the note is native Stop additionalContext (same turn), not a .lastturn relay.
@@ -665,6 +729,30 @@ class GraphP0(unittest.TestCase):
         r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=self.env)
         self.assertEqual(r.stdout.strip(), "CLEAN", r.stdout + r.stderr)
 
+    def test_resolver_never_binds_across_languages(self):
+        # A JS `readConfig` calling a bare `load()` must not bind to a Python `load`:
+        # a static call/inherit edge never crosses languages, so a cross-lang bind is
+        # noise, not a low-confidence guess (dec-016 honest degradation; dec-032).
+        self.put("py_mod.py", "def load():\n    return 1\n")
+        self.put("js_mod.js", "function readConfig() {\n  return load();\n}\n")
+        self.dv("graph", "sync")
+        import sqlite3
+        conn = sqlite3.connect(self.idx)
+        conn.row_factory = sqlite3.Row
+        crossed = conn.execute(
+            "SELECT sf.lang AS src_lang, df.lang AS dst_lang, ref.dst_name FROM ref "
+            "JOIN symbol ss ON ss.id = ref.src_symbol JOIN file sf ON sf.id = ss.file "
+            "JOIN symbol ds ON ds.id = ref.dst_symbol JOIN file df ON df.id = ds.file "
+            "WHERE ref.kind IN ('calls','inherits','implements') AND sf.lang != df.lang"
+        ).fetchall()
+        self.assertEqual([dict(r) for r in crossed], [])          # no edge crosses languages
+        (js_load_dst,) = conn.execute(
+            "SELECT ref.dst_symbol FROM ref "
+            "JOIN symbol ss ON ss.id = ref.src_symbol JOIN file sf ON sf.id = ss.file "
+            "WHERE sf.lang='javascript' AND ref.dst_name='load' AND ref.kind='calls'"
+        ).fetchone()
+        self.assertIsNone(js_load_dst)                            # left honestly unresolved
+
 
 class BenchmarkGate(unittest.TestCase):
     """dec-016 cutover gate: the self-built extractor must hit the recall/precision
@@ -818,6 +906,41 @@ class BenchmarkGate(unittest.TestCase):
                 "SELECT name FROM resource WHERE kind='sql_table'").fetchall()
             self.assertEqual(rows, [])
 
+    def test_prose_in_string_is_not_a_sql_table(self):
+        # "update stats from cache" is English, not SQL — it must not fabricate table resources
+        # (the false coupling that poisons `graph impact`).
+        with tempfile.TemporaryDirectory() as proj:
+            env = dict(os.environ, CLAUDE_PROJECT_DIR=proj, DEVANT_CODEGRAPH="off")
+            with open(os.path.join(proj, "m.py"), "w") as fh:
+                fh.write('import logging\nlog = logging.getLogger(__name__)\n\n'
+                         'def f():\n    log.info("update stats from cache now")\n')
+            idx = os.path.join(proj, "index.db")
+            subprocess.run([sys.executable, BIN, "--index-db", idx, "graph", "sync"],
+                           capture_output=True, env=env)
+            import sqlite3
+            rows = sqlite3.connect(idx).execute(
+                "SELECT name FROM resource WHERE kind='sql_table'").fetchall()
+            self.assertEqual(rows, [])
+
+    def test_multiline_sql_string_yields_tables(self):
+        # a real multi-line query must still resolve its tables (the false-negative the old
+        # line-by-line scan produced).
+        with tempfile.TemporaryDirectory() as proj:
+            env = dict(os.environ, CLAUDE_PROJECT_DIR=proj, DEVANT_CODEGRAPH="off")
+            with open(os.path.join(proj, "q.py"), "w") as fh:
+                fh.write('def load():\n    return db.query(\n        """\n'
+                         '        SELECT id\n        FROM orders\n'
+                         '        JOIN users ON users.id = orders.user_id\n'
+                         '        """\n    )\n')
+            idx = os.path.join(proj, "index.db")
+            subprocess.run([sys.executable, BIN, "--index-db", idx, "graph", "sync"],
+                           capture_output=True, env=env)
+            import sqlite3
+            names = {n for (n,) in sqlite3.connect(idx).execute(
+                "SELECT name FROM resource WHERE kind='sql_table'").fetchall()}
+            self.assertIn("orders", names)
+            self.assertIn("users", names)
+
 
 class DeclTierExtraction(unittest.TestCase):
     """Regression guard for the shipped-but-hollow decl-tier bug: _extract_generic
@@ -887,6 +1010,29 @@ class GraphSemantics(unittest.TestCase):
         r = json.loads(self.dv("graph", "impact", "f", "-j").stdout)
         hit = [s for s in r["symbols"] if s["qualname"] == "g"]
         self.assertTrue(hit and hit[0]["via"].startswith("resource:env:API_KEY"), r)
+
+    def test_sync_records_size_and_stale_index_tracks_head(self):
+        def git(*a):
+            subprocess.run(["git", *a], cwd=self.proj, capture_output=True, text=True, env=self.env)
+        git("init", "-q")
+        git("config", "user.email", "t@t")
+        git("config", "user.name", "t")
+        git("config", "commit.gpgsign", "false")
+        self.dv("add-node", "--kind", "note", "--title", "seed")   # so intent.db exists for dangling
+        self.put("m.py", "def f():\n    return 1\n")
+        git("add", "-A")
+        git("commit", "-q", "-m", "seed")
+        self.dv("graph", "sync")
+        import sqlite3
+        sizes = [s for (s,) in sqlite3.connect(self.idx).execute("SELECT size FROM file").fetchall()]
+        self.assertTrue(sizes and all(s is not None for s in sizes))    # fast-path column populated
+        self.assertFalse(json.loads(self.dv("dangling", "-j").stdout)["stale_index"])  # synced at HEAD
+        self.put("n.py", "y = 2\n")
+        git("add", "-A")
+        git("commit", "-q", "-m", "more")                              # HEAD moves, no resync
+        self.assertTrue(json.loads(self.dv("dangling", "-j").stdout)["stale_index"])   # STALE now
+        self.dv("graph", "sync")
+        self.assertFalse(json.loads(self.dv("dangling", "-j").stdout)["stale_index"])  # resync clears it
 
     def test_vue_script_block_is_extracted(self):
         self.put("w.vue", "<template><div/></template>\n<script>\nexport function hi() { return 1 }\n</script>\n")
@@ -1196,6 +1342,37 @@ class DrawioLint(unittest.TestCase):
         self.assertIn("labels colliding", r.stdout)
         self.assertIn("e->c", r.stdout)
 
+    def test_fontsize_scales_vertex_label_estimate(self):
+        # The gate must measure a label at its declared fontSize, not a hardcoded 12px. This label
+        # fits inside its 200px node at 12px but at 15px is 25% wider — it spills and lands on
+        # sibling b. 30 same-width glyphs keep the width estimate exact.
+        def deck(px):
+            a = ('<mxCell id="a" value="%s" style="rounded=1;fontSize=%d;" vertex="1" parent="1">'
+                 '<mxGeometry x="100" y="100" width="200" height="70" as="geometry" /></mxCell>'
+                 % ("n" * 30, px))
+            return self._model(a + self.vertex("b", 310, 100, 160, 70))
+        self.assertEqual(self.lint(self.write(deck(12))).returncode, 0)       # fits at 12px
+        r = self.lint(self.write(deck(15)))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)                # spills at 15px
+        self.assertIn("labels colliding", r.stdout)
+        self.assertIn("a->b", r.stdout)
+
+    def test_fontsize_scales_edge_label_estimate(self):
+        # Same fix, the separate edge-label path: this edge label clears bystander c at 12px but
+        # overruns it at 15px.
+        def deck(px):
+            edge = ('<mxCell id="e" value="%s" style="edgeStyle=orthogonalEdgeStyle;rounded=0;'
+                    'fontSize=%d;" edge="1" parent="1" source="a" target="b">'
+                    '<mxGeometry relative="1" as="geometry" /></mxCell>' % ("n" * 30, px))
+            cells = (self.vertex("a", 100, 100, 160, 70) + self.vertex("b", 100, 300, 160, 70)
+                     + self.vertex("c", 290, 210, 100, 70) + edge)
+            return self._model(cells)
+        self.assertEqual(self.lint(self.write(deck(12))).returncode, 0)       # clears c at 12px
+        r = self.lint(self.write(deck(15)))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)                # overruns c at 15px
+        self.assertIn("labels colliding", r.stdout)
+        self.assertIn("e->c", r.stdout)
+
     def wp_edge(self, i, src, tgt, points):
         pts = "".join('<mxPoint x="%s" y="%s" />' % p for p in points)
         return ('<mxCell id="%s" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" '
@@ -1358,6 +1535,86 @@ class ElkLayout(unittest.TestCase):
         lint = subprocess.run([sys.executable, BIN, "drawio-lint", p, "--fix"],
                               capture_output=True, text=True)
         self.assertEqual(lint.returncode, 0, lint.stdout + lint.stderr)
+
+
+class SlideSkill(unittest.TestCase):
+    """dec-036 redesign: brand.json tokens -> `slide-styles` block (drift-proof against the shipped
+    sample), and `slide-lint` catches the anti-slop tells geometry can check (off-brand colour,
+    fabricated hero stat, decorative chart)."""
+    REF = os.path.join(ROOT, "skills", "slide", "references")
+    SAMPLE = os.path.join(REF, "brand-sample.fodp")
+
+    def dv(self, *args):
+        return subprocess.run([sys.executable, BIN, *args], capture_output=True, text=True)
+
+    def _read_sample(self):
+        with open(self.SAMPLE) as fh:
+            return fh.read()
+
+    def _variant(self, tmp, replace=None, extra_page=""):
+        src = self._read_sample()
+        if replace:
+            src = src.replace(*replace)
+        if extra_page:
+            src = src.replace("</office:presentation>", extra_page + "\n  </office:presentation>")
+        p = os.path.join(tmp, "deck.fodp")
+        with open(p, "w") as fh:
+            fh.write(src)
+        return p
+
+    def test_sample_lints_clean(self):
+        r = self.dv("slide-lint", self.SAMPLE)                       # the repo self-test
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_generator_equals_sample_block(self):
+        gen = self.dv("slide-styles").stdout                         # drift-proof invariant
+        block = re.search(r"<office:automatic-styles>.*?</office:automatic-styles>",
+                          self._read_sample(), re.S).group(0)
+        norm = lambda s: re.sub(r"\s+", " ", s).strip()
+        self.assertEqual(norm(gen), norm(block))
+
+    def test_styles_rebrand_from_a_fed_token_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            bp = os.path.join(d, "brand.json")
+            with open(bp, "w") as fh:
+                json.dump({"palette": {"accent": "#0B5FFF"}}, fh)   # feed just one token
+            out = self.dv("slide-styles", "--brand", bp).stdout
+            self.assertIn("#0B5FFF", out)                            # fed accent flows through
+            self.assertNotIn("#C4351F", out)                         # default accent fully replaced
+
+    def test_lint_flags_off_brand_colour(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self._variant(d, replace=('fo:color="#1B1A17"', 'fo:color="#0AC5FF"'))
+            r = self.dv("slide-lint", p)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("#0AC5FF", r.stderr)
+
+    def test_lint_flags_fabricated_hero_stat(self):
+        stat = ('<draw:page draw:name="Stat" draw:style-name="dpDark" draw:master-page-name="Master">'
+                '<draw:frame draw:style-name="gText" svg:width="16cm" svg:height="4cm" svg:x="1.6cm" svg:y="2.8cm">'
+                '<draw:text-box><text:p text:style-name="pFig">3.2x</text:p></draw:text-box></draw:frame></draw:page>')
+        with tempfile.TemporaryDirectory() as d:
+            r = self.dv("slide-lint", self._variant(d, extra_page=stat))
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("hero figure", r.stderr)
+            # a same-page source marker clears it
+            sourced = stat.replace("</draw:page>",
+                '<draw:frame draw:style-name="gText" svg:width="10cm" svg:height="1cm" svg:x="1.6cm" svg:y="12cm">'
+                '<draw:text-box><text:p text:style-name="pBodyS">src: 2024 pilot</text:p></draw:text-box></draw:frame></draw:page>')
+            r2 = self.dv("slide-lint", self._variant(d, extra_page=sourced))
+            self.assertEqual(r2.returncode, 0, r2.stderr)
+
+    def test_lint_flags_decorative_chart(self):
+        bars = ('<draw:page draw:name="Bars" draw:style-name="dpDark" draw:master-page-name="Master">'
+                '<draw:rect draw:style-name="gGrey" svg:width="1.4cm" svg:height="2cm" svg:x="20.5cm" svg:y="10.6cm"/>'
+                '<draw:rect draw:style-name="gGrey" svg:width="1.4cm" svg:height="3cm" svg:x="22.3cm" svg:y="9.6cm"/>'
+                '<draw:rect draw:style-name="gAccent" svg:width="1.4cm" svg:height="4.4cm" svg:x="24.1cm" svg:y="8.2cm"/></draw:page>')
+        with tempfile.TemporaryDirectory() as d:
+            r = self.dv("slide-lint", self._variant(d, extra_page=bars))
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("decorative chart", r.stderr)
+            r2 = self.dv("slide-lint", self._variant(d, extra_page=bars), "--allow-chart")
+            self.assertEqual(r2.returncode, 0, r2.stderr)
 
 
 if __name__ == "__main__":

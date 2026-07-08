@@ -14,13 +14,60 @@ parented to `"1"` (or to a container). Vertices carry `vertex="1"` + `<mxGeometr
 edges carry `edge="1"` + `source`/`target`. Both skeletons below are valid and open as-is in
 draw.io / diagrams.net or the VS Code "Draw.io Integration" extension.
 
-**Above all — completeness with restraint.** A devant diagram must let a first-time reader (dev or
-not) understand the *whole* story **without a verbal walkthrough** — and then stop. Show every step,
-branch, **loop**, and error path that changes what happens, plus the key data on each edge; fold
-away anything that doesn't change the reader's understanding. Both extremes fail equally: a skeleton
-that hides the real branches/loops leaves the reader asking "but what happens when…?", and a wall of
-boxes nobody can trace is just as useless. The bar is **minimal questions** — if a reasonable reader
-would have to ask, the answer belongs on the diagram.
+**Above all — completeness with restraint (engineering-complete altitude).** This bar governs the
+*engineering-complete* altitude (§0); the *idea-level* altitude has its own, lighter bar there. In
+engineering-complete mode a devant diagram must let a first-time reader (dev or not) understand the
+*whole* story **without a verbal walkthrough** — and then stop. Show every step, branch, **loop**,
+and error path that changes what happens, plus the key data on each edge; fold away anything that
+doesn't change the reader's understanding. Both extremes fail equally: a skeleton that hides the
+real branches/loops leaves the reader asking "but what happens when…?", and a wall of boxes nobody
+can trace is just as useless. The bar is **minimal questions** — if a reasonable reader would have
+to ask, the answer belongs on the diagram. (At idea-level you draw *fewer* boxes at a higher
+altitude — but the honesty rule is identical: never draw a step or branch that isn't real.)
+
+---
+
+## 0. Altitude — pick it before anything else
+
+Before you choose architecture vs. activity, decide the **altitude**, because it sets the
+completeness bar. Two altitudes, chosen by the *intent* of the request:
+
+**Idea-level (default when the request is a pitch).** When the ask is to show a *plan, design, idea,
+or concept* — anything a business or non-technical audience must grasp in **~15 seconds** — draw the
+*idea*, not the implementation. A first-time viewer should see *what it is, where it starts, and how
+value flows* with no walkthrough and no glossary.
+- **Architecture idea-level = C4 Level 1 (System Context).** The system as **one** box, the
+  people/actors who use it, and the external systems it talks to — nothing *inside* the box. Edge
+  labels are plain language ("places an order", "sends receipt"), never `[Container: tech]` tags or
+  protocols. One clear flow direction, and a one-line caption under the title saying what the whole
+  picture is for.
+- **Process idea-level = a milestone flow.** The 3–6 major phases in order, each a box that
+  legitimately **encapsulates** its sub-steps ("Checkout", "Fulfilment", "Settlement"). A phase is a
+  real thing, so this is honest abstraction — *not* an activity diagram with its branches deleted.
+  Plain verbs, one direction, a caption.
+- **Its completeness bar:** every box still maps to something real (no invented components); the
+  picture answers *what / who / where does it start / how does value flow* on sight. It need **not**
+  show branches, loops, or error paths — but it must never *pretend* to. Draw fewer things, at a
+  higher level; whatever you *do* draw must be true.
+
+**Engineering-complete (opt-in, for detail).** When the ask is to *show the detail / the full flow /
+how it actually works*, or the audience is engineers building it, use the complete bar in "Above
+all" and the full notation: C4 container/component (§2) or UML activity (§3) — every real step,
+branch, loop, and error path, grounded box-by-box in codegraph.
+
+**How to choose the altitude:**
+- pitch / plan / design / idea / "show the concept" / a business or exec audience → **idea-level**.
+- "show detail" / "full flow" / "how it works" / "the actual states" / an engineering audience →
+  **engineering-complete**.
+- Ambiguous → default to **idea-level** and say so in one line; the user will ask for detail when
+  they want it.
+
+Both altitudes share the one style system (§1) and neither invents — idea-level *groups and
+abstracts* real code, it doesn't fabricate. Not too much text, not too little: the viewer should
+neither squint at a wall of boxes nor be left interrogating a near-empty one.
+
+A caption is a plain text cell under the title (no box): `text;html=1;fontFamily=Helvetica;`
+`fontSize=12;fontColor=#555555;` — one sentence naming what the picture is and why it matters.
 
 ---
 
@@ -37,17 +84,19 @@ would have to ask, the answer belongs on the diagram.
 | Decision | `#FFF2CC` | `#D6B656` | decision diamonds / callouts needing attention |
 | Error | `#F8CECC` | `#B85450` | error/failure paths and states |
 
-**Typography** — `fontFamily=Helvetica`. Title **bold** `fontSize=13`; sub-label / tech tag
-`fontSize=11` `fontColor=#555555`. Keep every label ≤ 4 words + an optional bracketed tag; detail
+**Typography** — `fontFamily=Helvetica`. Title **bold** `fontSize=15`; sub-label / tech tag
+`fontSize=12` `fontColor=#555555`. Keep every label ≤ 4 words + an optional bracketed tag; detail
 goes on the edge, not in the box.
 
-**Nodes** — rounded rectangles (`rounded=1`), min size **160×70**, 40 px gap between siblings.
-Align to the 10 px grid (all coordinates multiples of 10). `whiteSpace=wrap;html=1` on every node so
-labels wrap and render markup.
+**Nodes** — rounded rectangles (`rounded=1`), min size **170×70** (two-line nodes; a single-line
+action box may be shorter), 40 px gap between siblings, `strokeWidth=2` on every node — a 1 px
+outline all but vanishes when the diagram is projected. Align to the 10 px grid (all coordinates
+multiples of 10). `whiteSpace=wrap;html=1` on every node so labels wrap and render markup.
 
 **Edges** — orthogonal (`edgeStyle=orthogonalEdgeStyle;rounded=0`), single arrowhead, always
-labelled with the interaction ("Calls (HTTPS/JSON)", "Reads/Writes (SQL)"). `strokeColor=#666666`.
-Route to minimise crossings; if two edges must cross, that's usually a layout smell — move a node.
+labelled with the interaction ("Calls (HTTPS/JSON)", "Reads/Writes (SQL)"). `strokeColor=#666666`
+`strokeWidth=2` (thin lines are the first thing to disappear on a big screen). Route to minimise
+crossings; if two edges must cross, that's usually a layout smell — move a node.
 
 **Layout** — architecture flows **top→down by dependency** (user/actor on top, data stores at the
 bottom); activity flows **top→down in execution order**. One primary direction only. Leave a margin;
@@ -55,6 +104,12 @@ don't crowd the canvas edge.
 
 **Legend** — every diagram gets a small legend box (bottom-left) explaining any colour used, so a
 first-time reader needs no verbal walkthrough. See the block at the end of each skeleton.
+
+**Sizing is for the projector, not the file.** These defaults optimise the on-screen *ratio* — text
+and stroke weight relative to the canvas — so the diagram stays legible when zoomed-to-fit on a big
+screen. Absolute px counts don't survive zoom-to-fit; the levers that do are heavier strokes and
+fewer, denser boxes (idea-mode, §0) — *not* bigger nodes, which shrink the text-to-canvas ratio.
+Confirm it actually reads on the `drawio-preview` visual gate (SKILL step 6d), not by the px number.
 
 ---
 
@@ -80,7 +135,7 @@ every edge in a real call. Two-line labels: bold name + a `[Container: tech]` ta
 
         <!-- actor -->
         <mxCell id="person" value="&lt;b&gt;Customer&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[Person]&lt;/font&gt;"
-                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontFamily=Helvetica;fontSize=13;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontFamily=Helvetica;fontSize=15;strokeWidth=2;"
                 vertex="1" parent="1">
           <mxGeometry x="280" y="40" width="170" height="60" as="geometry" />
         </mxCell>
@@ -94,49 +149,49 @@ every edge in a real call. Two-line labels: bold name + a `[Container: tech]` ta
 
         <!-- containers -->
         <mxCell id="web" value="&lt;b&gt;Web App&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[Container: React]&lt;/font&gt;"
-                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=13;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=15;strokeWidth=2;"
                 vertex="1" parent="1">
           <mxGeometry x="190" y="210" width="180" height="70" as="geometry" />
         </mxCell>
         <mxCell id="api" value="&lt;b&gt;API Service&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[Container: Python / FastAPI]&lt;/font&gt;"
-                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=13;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=15;strokeWidth=2;"
                 vertex="1" parent="1">
           <mxGeometry x="450" y="210" width="180" height="70" as="geometry" />
         </mxCell>
         <mxCell id="db" value="&lt;b&gt;Database&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[Container: PostgreSQL]&lt;/font&gt;"
-                style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;fillColor=#E1D5E7;strokeColor=#9673A6;fontFamily=Helvetica;fontSize=13;"
+                style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;fillColor=#E1D5E7;strokeColor=#9673A6;fontFamily=Helvetica;fontSize=15;strokeWidth=2;"
                 vertex="1" parent="1">
           <mxGeometry x="320" y="360" width="180" height="90" as="geometry" />
         </mxCell>
 
         <!-- external system (outside the boundary) -->
         <mxCell id="pay" value="&lt;b&gt;Payment Gateway&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#555555&quot;&gt;[External System]&lt;/font&gt;"
-                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontFamily=Helvetica;fontSize=13;"
+                style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontFamily=Helvetica;fontSize=15;strokeWidth=2;"
                 vertex="1" parent="1">
           <mxGeometry x="730" y="210" width="180" height="70" as="geometry" />
         </mxCell>
 
         <!-- edges: labelled with the real interaction -->
-        <mxCell id="e1" value="Uses" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;"
+        <mxCell id="e1" value="Uses" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;fontFamily=Helvetica;fontSize=12;fontColor=#555555;"
                 edge="1" parent="1" source="person" target="web">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e2" value="Calls (HTTPS/JSON)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;"
+        <mxCell id="e2" value="Calls (HTTPS/JSON)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;fontFamily=Helvetica;fontSize=12;fontColor=#555555;"
                 edge="1" parent="1" source="web" target="api">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e3" value="Reads/Writes (SQL)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;"
+        <mxCell id="e3" value="Reads/Writes (SQL)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;fontFamily=Helvetica;fontSize=12;fontColor=#555555;"
                 edge="1" parent="1" source="api" target="db">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e4" value="Charges (REST)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;"
+        <mxCell id="e4" value="Charges (REST)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;fontFamily=Helvetica;fontSize=12;fontColor=#555555;"
                 edge="1" parent="1" source="api" target="pay">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
         <!-- legend -->
         <mxCell id="legend" value="&lt;b&gt;Legend&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#6C8EBF&quot;&gt;&#9632;&lt;/font&gt; Container&#160;&#160;&lt;font color=&quot;#9673A6&quot;&gt;&#9632;&lt;/font&gt; Data store&lt;br&gt;&lt;font color=&quot;#666666&quot;&gt;&#9632;&lt;/font&gt; External / person&lt;br&gt;&#8594; labelled with the interaction"
-                style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#FFFFFF;strokeColor=#CCCCCC;fontFamily=Helvetica;fontSize=11;spacingLeft=6;spacingTop=4;"
+                style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#FFFFFF;strokeColor=#CCCCCC;fontFamily=Helvetica;fontSize=12;spacingLeft=6;spacingTop=4;"
                 vertex="1" parent="1">
           <mxGeometry x="150" y="520" width="300" height="110" as="geometry" />
         </mxCell>
@@ -171,20 +226,20 @@ action/decision in the real code path (codegraph the flow). Colour error paths/s
           <mxGeometry x="400" y="40" width="30" height="30" as="geometry" />
         </mxCell>
 
-        <mxCell id="a1" value="Add item to cart" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=13;"
+        <mxCell id="a1" value="Add item to cart" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=15;strokeWidth=2;"
                 vertex="1" parent="1">
-          <mxGeometry x="335" y="110" width="160" height="60" as="geometry" />
+          <mxGeometry x="335" y="110" width="170" height="60" as="geometry" />
         </mxCell>
 
         <!-- decision -->
-        <mxCell id="d1" value="Logged in?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontFamily=Helvetica;fontSize=13;"
+        <mxCell id="d1" value="Logged in?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontFamily=Helvetica;fontSize=15;strokeWidth=2;"
                 vertex="1" parent="1">
           <mxGeometry x="345" y="210" width="140" height="80" as="geometry" />
         </mxCell>
 
-        <mxCell id="a2" value="Show login" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=13;"
+        <mxCell id="a2" value="Show login" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=15;strokeWidth=2;"
                 vertex="1" parent="1">
-          <mxGeometry x="120" y="220" width="160" height="60" as="geometry" />
+          <mxGeometry x="120" y="220" width="170" height="60" as="geometry" />
         </mxCell>
 
         <!-- fork bar: parallel work -->
@@ -192,13 +247,13 @@ action/decision in the real code path (codegraph the flow). Colour error paths/s
                 vertex="1" parent="1">
           <mxGeometry x="320" y="340" width="190" height="8" as="geometry" />
         </mxCell>
-        <mxCell id="a3" value="Reserve inventory" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=13;"
+        <mxCell id="a3" value="Reserve inventory" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=15;strokeWidth=2;"
                 vertex="1" parent="1">
-          <mxGeometry x="230" y="380" width="160" height="60" as="geometry" />
+          <mxGeometry x="230" y="380" width="170" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="a4" value="Charge card" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=13;"
+        <mxCell id="a4" value="Charge card" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontFamily=Helvetica;fontSize=15;strokeWidth=2;"
                 vertex="1" parent="1">
-          <mxGeometry x="440" y="380" width="160" height="60" as="geometry" />
+          <mxGeometry x="440" y="380" width="170" height="60" as="geometry" />
         </mxCell>
         <!-- join bar -->
         <mxCell id="join" value="" style="rounded=0;fillColor=#000000;strokeColor=#000000;html=1;"
@@ -206,18 +261,18 @@ action/decision in the real code path (codegraph the flow). Colour error paths/s
           <mxGeometry x="320" y="470" width="190" height="8" as="geometry" />
         </mxCell>
 
-        <mxCell id="d2" value="Payment OK?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontFamily=Helvetica;fontSize=13;"
+        <mxCell id="d2" value="Payment OK?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontFamily=Helvetica;fontSize=15;strokeWidth=2;"
                 vertex="1" parent="1">
           <mxGeometry x="345" y="510" width="140" height="80" as="geometry" />
         </mxCell>
 
-        <mxCell id="a5" value="Show error" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;fontFamily=Helvetica;fontSize=13;"
+        <mxCell id="a5" value="Show error" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;fontFamily=Helvetica;fontSize=15;strokeWidth=2;"
                 vertex="1" parent="1">
-          <mxGeometry x="120" y="520" width="160" height="60" as="geometry" />
+          <mxGeometry x="120" y="520" width="170" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="a6" value="Create order" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontFamily=Helvetica;fontSize=13;"
+        <mxCell id="a6" value="Create order" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontFamily=Helvetica;fontSize=15;strokeWidth=2;"
                 vertex="1" parent="1">
-          <mxGeometry x="335" y="620" width="160" height="60" as="geometry" />
+          <mxGeometry x="335" y="620" width="170" height="60" as="geometry" />
         </mxCell>
 
         <!-- final node (ring + filled core) -->
@@ -231,23 +286,23 @@ action/decision in the real code path (codegraph the flow). Colour error paths/s
         </mxCell>
 
         <!-- edges (guards on decision branches) -->
-        <mxCell id="f1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;" edge="1" parent="1" source="start" target="a1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="f2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;" edge="1" parent="1" source="a1" target="d1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="f3" value="[no]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;" edge="1" parent="1" source="d1" target="a2"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="f4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;" edge="1" parent="1" source="a2" target="d1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="f5" value="[yes]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;" edge="1" parent="1" source="d1" target="fork"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="f6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;" edge="1" parent="1" source="fork" target="a3"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="f7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;" edge="1" parent="1" source="fork" target="a4"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="f8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;" edge="1" parent="1" source="a3" target="join"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="f9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;" edge="1" parent="1" source="a4" target="join"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="f10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;" edge="1" parent="1" source="join" target="d2"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="f11" value="[no]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#B85450;fontFamily=Helvetica;fontSize=11;fontColor=#B85450;" edge="1" parent="1" source="d2" target="a5"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="f12" value="[yes]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;" edge="1" parent="1" source="d2" target="a6"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="f13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;" edge="1" parent="1" source="a6" target="end_ring"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="start" target="a1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="a1" target="d1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f3" value="[no]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;fontFamily=Helvetica;fontSize=12;fontColor=#555555;" edge="1" parent="1" source="d1" target="a2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="a2" target="d1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f5" value="[yes]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;fontFamily=Helvetica;fontSize=12;fontColor=#555555;" edge="1" parent="1" source="d1" target="fork"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="fork" target="a3"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="fork" target="a4"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="a3" target="join"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="a4" target="join"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="join" target="d2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f11" value="[no]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#B85450;fontFamily=Helvetica;fontSize=12;fontColor=#B85450;" edge="1" parent="1" source="d2" target="a5"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f12" value="[yes]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;fontFamily=Helvetica;fontSize=12;fontColor=#555555;" edge="1" parent="1" source="d2" target="a6"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="a6" target="end_ring"><mxGeometry relative="1" as="geometry" /></mxCell>
 
         <!-- legend -->
         <mxCell id="legend" value="&lt;b&gt;Legend&lt;/b&gt;&lt;br&gt;&#9679; start&#160;&#160;&#9678; end&#160;&#160;&#9670; decision&lt;br&gt;&#9644; fork/join (parallel)&lt;br&gt;&lt;font color=&quot;#B85450&quot;&gt;&#9632;&lt;/font&gt; error path&#160;&#160;[guard] on branches"
-                style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#FFFFFF;strokeColor=#CCCCCC;fontFamily=Helvetica;fontSize=11;spacingLeft=6;spacingTop=4;"
+                style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#FFFFFF;strokeColor=#CCCCCC;fontFamily=Helvetica;fontSize=12;spacingLeft=6;spacingTop=4;"
                 vertex="1" parent="1">
           <mxGeometry x="620" y="40" width="200" height="110" as="geometry" />
         </mxCell>
@@ -265,7 +320,7 @@ back-edge out to the side with a waypoint so it doesn't run through the boxes it
 it an arc jump where it crosses a forward edge:
 
 ```xml
-<mxCell id="loop" value="[retry ≤ 3]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontFamily=Helvetica;fontSize=11;fontColor=#555555;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="a5" target="a3">
+<mxCell id="loop" value="[retry ≤ 3]" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;fontFamily=Helvetica;fontSize=12;fontColor=#555555;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="a5" target="a3">
   <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="640" y="410" /></Array></mxGeometry>
 </mxCell>
 ```
@@ -313,7 +368,7 @@ Crossing or shape-piercing edges are what make a diagram look amateur. Keep them
   node's width/height). Two edges leaving the same node should use different `exitY` values.
 - **Route around an obstructing shape with waypoints** instead of letting a line cut through it:
   ```xml
-  <mxCell id="e" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;" edge="1" parent="1" source="a" target="b">
+  <mxCell id="e" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="a" target="b">
     <mxGeometry relative="1" as="geometry">
       <Array as="points"><mxPoint x="480" y="300" /></Array>
     </mxGeometry>

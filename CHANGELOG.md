@@ -2,6 +2,52 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.15.0] - 2026-07-08
+
+A review-driven hardening pass plus the slide and debate redesigns.
+
+### Added
+- **`devant slide-styles` + `devant slide-lint`** (new stdlib `slide.py`): slide branding is now
+  **user-fed** via a `brand.json` token file (resolution `--brand` → `docs/slides/brand.json` →
+  `.devant/brand.json` → the shipped Ink & Signal default). `slide-styles` emits the ODF
+  `<office:automatic-styles>` block from tokens (the sample's block equals generator output,
+  test-enforced, so it can't drift); `slide-lint` mechanically gates off-brand colour, a fabricated
+  hero figure, and a decorative numberless chart — the anti-slop tells the eyeball pass missed (dec-038).
+- **`devant export` / `devant import`**: dump the intent graph as committable JSON and load it on a
+  fresh clone, so decisions/constraints/non-goals travel with the repo and stay enforceable after
+  import (import upserts by id). The live `.devant/` store stays local/gitignored.
+- **Graph sync mtime+size fast-path**: unchanged files skip the read+hash, removing the full-tree
+  re-hash stall on every sync. A **git-HEAD watermark** now powers a real `stale_index` in
+  `devant dangling` (was hard-coded `false`), so a `git pull`/checkout that moved HEAD is flagged.
+
+### Changed
+- **debate (dec-037)**: on-by-default and broad for every design (dec-024's no-size-gate re-affirmed,
+  not reversed), but **user-skippable** via a per-request phrase; **one forked round by default**,
+  escalating only on an unsettled kill-shot/load-bearing challenge; the architect **threads its §1
+  grounding** so debate verifies rather than re-grounds each round; a 3-tier source-authority bar and
+  kill-shot-first prioritisation raise signal.
+- **router**: `devant log` accepts `slide`/`debate`/`review`; `review` is reachable from the dispatch
+  table; a compound-request tie-break and an "is this a good approach?" discriminator; carries a
+  debate skip/re-enable phrase verbatim to the architect.
+- **onboard**: stable node ids so a re-run updates instead of duplicating; the ~150 MB preview
+  renderer is gated behind an explicit ask (a non-diagram repo downloads nothing large); honest
+  cheap-model/out-of-pocket-cost wording for the annotation fan-out.
+- **Leaner context injection**: decisions match a prompt on title + rejected-alternative only, not
+  the rationale prose, so a long decision body no longer floods the prompt on a shared token.
+- **Skill sharpening**: `document` (quality bar + accuracy check), `intent` (search-before-record,
+  `show`, export/import), `ask` (graph-miss fallback), `review` (obtains the diff itself),
+  `code` (paste command + output receipts), `diagram` (layout strips waypoints; route via edge
+  exit/entry).
+
+### Fixed
+- **git guard covers wrapper-prefixed writes**: `sudo git push` / `env git commit` / `FOO=1 git push`
+  were silently bypassing the guard (the `hooks.json` `if: "Bash(git *)"` matcher never saw through
+  the wrappers) while the tests "proved" they were denied. The git filter moved into the hook script,
+  closing the bypass and making it testable.
+- **extract.py resource false-coupling**: `sql_table` resources are extracted only from string
+  literals shaped like a real SQL statement — prose such as `"update stats from cache"` no longer
+  fabricates coupling edges, and multi-line queries now resolve their tables.
+
 ## [0.14.1] - 2026-07-07
 
 Two `drawio-lint` fixes for diagrams that author edge labels and UML final nodes as their own cells.

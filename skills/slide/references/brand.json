@@ -1,0 +1,19 @@
+{
+  "$schema": "devant-slide-brand/1",
+  "name": "Ink & Signal",
+  "font": {
+    "family": "Noto Sans",
+    "fallback": "Noto Sans, \"Helvetica Neue\", Arial, \"Liberation Sans\", sans-serif"
+  },
+  "palette": {
+    "ink": "#1B1A17",
+    "paper": "#FFFFFF",
+    "panel": "#F2F1EE",
+    "grey": "#6E6B64",
+    "mist": "#9C9A93",
+    "hairline": "#E4E2DC",
+    "accent": "#C4351F",
+    "accentTint": "#F5D9D2"
+  },
+  "logo": null
+}

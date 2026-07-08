@@ -13,7 +13,11 @@ PREFIX = {
     "decision": "dec", "constraint": "con", "nongoal": "nongoal", "note": "note",
 }
 EDGE_KINDS = ["refines", "realizes", "supersedes", "rejects", "establishes", "constrains", "relates"]
-SPECIALISTS = ["ask", "code", "document", "intent", "architect", "diagram", "onboard"]
+SPECIALISTS = ["ask", "code", "document", "intent", "architect", "diagram", "slide", "debate", "review", "onboard"]
+# Specialists that are invoked as a sub-step (review by code, debate by architect) or via a
+# command (onboard), not (only) a router route — a zero router-log count doesn't mean unused,
+# so they're excluded from the dead-skills "never used" signal.
+SUBINVOKED_SPECIALISTS = {"onboard", "review", "debate"}
 LAYOUT_PRESETS = ["verticalFlow", "horizontalFlow", "verticalTree", "horizontalTree",
                   "radialTree", "organic"]
 

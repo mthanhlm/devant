@@ -60,15 +60,15 @@ def _enumerate(proj):
 
 
 def _scan(ab):
-    """(skip_reason|None, sha256, mtime) for one absolute path."""
+    """(skip_reason|None, sha256, mtime, size) for one absolute path."""
     if os.path.islink(ab):
-        return ("symlink", None, None)
+        return ("symlink", None, None, None)
     try:
         st = os.stat(ab)
     except OSError:
-        return ("unreadable", None, None)
+        return ("unreadable", None, None, None)
     if st.st_size > MAX_FILE_BYTES:
-        return ("too-large", None, None)
+        return ("too-large", None, None, None)
     h = hashlib.sha256()
     head = b""
     try:
@@ -83,16 +83,16 @@ def _scan(ab):
                     first = False
                 h.update(chunk)
     except OSError:
-        return ("unreadable", None, None)
+        return ("unreadable", None, None, None)
     if b"\0" in head:
-        return ("binary", None, None)
+        return ("binary", None, None, None)
     if any(len(ln) > MAX_LINE_CHARS for ln in head.split(b"\n")):
-        return ("minified", None, None)
-    return (None, h.hexdigest(), st.st_mtime)
+        return ("minified", None, None, None)
+    return (None, h.hexdigest(), st.st_mtime, st.st_size)
 
 
 def file_hash(ab):
-    _, h, _ = _scan(ab)
+    _, h, _, _ = _scan(ab)
     return h
 
 
@@ -156,24 +156,37 @@ def _store_extraction(conn, fid, rel, lang, text):
 def _resolve_refs(conn):
     """Global pass: bind dst_name to a symbol id where the target is unambiguous —
     exact qualname first, then unique bare name; cross-file binds carry a confidence
-    haircut (0.9x). Same-file binds were done at store time via the sid map."""
+    haircut (0.9x). Same-file binds were done at store time via the sid map.
+    Candidates are confined to the referrer's own language: a static call/inherit/
+    implements edge never crosses languages, so a bare `load` in JS must not bind a
+    Python `load` — that is noise, not a low-confidence guess (dec-016 honest
+    degradation; dec-032)."""
     for r in conn.execute(
-            "SELECT rowid, dst_name, confidence FROM ref "
-            "WHERE dst_symbol IS NULL AND kind IN ('calls','inherits','implements')").fetchall():
-        hits = conn.execute("SELECT id FROM symbol WHERE qualname=? AND kind!='module'",
-                            (r["dst_name"],)).fetchall()
+            "SELECT ref.rowid AS rowid, ref.dst_name AS dst_name, ref.confidence AS confidence, "
+            "f.lang AS src_lang FROM ref JOIN symbol s ON s.id = ref.src_symbol "
+            "JOIN file f ON f.id = s.file "
+            "WHERE ref.dst_symbol IS NULL "
+            "AND ref.kind IN ('calls','inherits','implements')").fetchall():
+        hits = conn.execute(
+            "SELECT s.id FROM symbol s JOIN file f ON f.id = s.file "
+            "WHERE s.qualname=? AND s.kind!='module' AND f.lang=?",
+            (r["dst_name"], r["src_lang"])).fetchall()
         if not hits and "." in r["dst_name"]:
             # module-qualified call (lib.core): head names a module symbol -> look up
             # the remainder inside that module's file.
             head, _, rest = r["dst_name"].partition(".")
             hits = conn.execute(
                 "SELECT s.id FROM symbol s JOIN symbol m ON m.file = s.file "
-                "WHERE m.kind='module' AND m.name=? AND s.qualname=? AND s.kind!='module'",
-                (head, rest)).fetchall()
+                "JOIN file f ON f.id = s.file "
+                "WHERE m.kind='module' AND m.name=? AND s.qualname=? AND s.kind!='module' "
+                "AND f.lang=?",
+                (head, rest, r["src_lang"])).fetchall()
         bare = False
         if not hits and "." not in r["dst_name"]:
-            hits = conn.execute("SELECT id FROM symbol WHERE name=? AND kind!='module'",
-                                (r["dst_name"],)).fetchall()
+            hits = conn.execute(
+                "SELECT s.id FROM symbol s JOIN file f ON f.id = s.file "
+                "WHERE s.name=? AND s.kind!='module' AND f.lang=?",
+                (r["dst_name"], r["src_lang"])).fetchall()
             bare = True
         if len(hits) == 1:
             conf = min(round(r["confidence"] * 0.9, 2), 0.6) if bare else round(r["confidence"] * 0.9, 2)
@@ -188,27 +201,46 @@ def cmd_graph_sync(args):
     present = set()
     for rel in _enumerate(proj):
         counts["scanned"] += 1
-        reason, h, mtime = _scan(os.path.join(proj, rel))
+        ab = os.path.join(proj, rel)
+        row = conn.execute("SELECT id, hash, mtime, size, extractor_version FROM file WHERE path=?",
+                           (rel,)).fetchone()
+        # mtime+size fast-path: an already-indexed file whose mtime AND size are both unchanged
+        # can't have new content, so skip the O(bytes) read+hash the sync otherwise pays on EVERY
+        # file EVERY run (the stall behind a synchronous Stop-hook reindex on a large repo). A real
+        # source edit changes mtime and almost always size, so this is safe; the hash still guards
+        # the case where only one differs.
+        if (row is not None and row["extractor_version"] == EXTRACTOR_VERSION
+                and row["mtime"] is not None and row["size"] is not None and not os.path.islink(ab)):
+            try:
+                st = os.stat(ab)
+            except OSError:
+                st = None
+            if st is not None and st.st_mtime == row["mtime"] and st.st_size == row["size"]:
+                present.add(rel)
+                continue
+        reason, h, mtime, size = _scan(ab)
         if reason:
             counts["skipped"] += 1
             continue
         present.add(rel)
         lang = LANG_BY_EXT.get(os.path.splitext(rel)[1].lower(), "other")
-        row = conn.execute("SELECT id, hash, extractor_version FROM file WHERE path=?",
-                           (rel,)).fetchone()
         changed = row is None or row["hash"] != h or row["extractor_version"] != EXTRACTOR_VERSION
         if row is None:
             cur = conn.execute(
-                "INSERT INTO file(path,lang,hash,mtime,extractor_version) VALUES(?,?,?,?,?)",
-                (rel, lang, h, mtime, EXTRACTOR_VERSION))
+                "INSERT INTO file(path,lang,hash,mtime,size,extractor_version) VALUES(?,?,?,?,?,?)",
+                (rel, lang, h, mtime, size, EXTRACTOR_VERSION))
             fid = cur.lastrowid
             counts["indexed"] += 1
         elif changed:
             fid = row["id"]
-            conn.execute("UPDATE file SET lang=?, hash=?, mtime=?, status='ok', error=NULL, "
+            conn.execute("UPDATE file SET lang=?, hash=?, mtime=?, size=?, status='ok', error=NULL, "
                          "extractor_version=? WHERE id=?",
-                         (lang, h, mtime, EXTRACTOR_VERSION, fid))
+                         (lang, h, mtime, size, EXTRACTOR_VERSION, fid))
             counts["updated"] += 1
+        elif row["mtime"] != mtime or row["size"] != size:
+            # content identical but the file was touched — refresh mtime/size so the fast-path
+            # short-circuits next run instead of re-hashing this file forever.
+            conn.execute("UPDATE file SET mtime=?, size=? WHERE id=?", (mtime, size, row["id"]))
         if changed:
             try:
                 with open(os.path.join(proj, rel), encoding="utf-8", errors="replace") as fh:
@@ -238,6 +270,17 @@ def cmd_graph_sync(args):
         conn.execute("DELETE FROM file WHERE id=?", (r["id"],))
         counts["removed"] += 1
     _resolve_refs(conn)
+    # git-HEAD watermark so `devant dangling` can report the index STALE when HEAD moved since the
+    # last sync (a git pull/checkout that added callers, with no intervening Claude-tool edit to
+    # trigger a resync) instead of always claiming fresh.
+    try:
+        head = subprocess.run(["git", "-C", proj, "rev-parse", "HEAD"],
+                              capture_output=True, text=True, timeout=5)
+        if head.returncode == 0:
+            conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('synced_head',?)",
+                         (head.stdout.strip(),))
+    except (OSError, subprocess.TimeoutExpired):
+        pass
     conn.commit()
     try:
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")

@@ -91,7 +91,7 @@ def ensure_index_schema(conn):
     CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
     CREATE TABLE IF NOT EXISTS file(
       id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, lang TEXT, hash TEXT, mtime REAL,
-      status TEXT DEFAULT 'ok', error TEXT, extractor_version INTEGER DEFAULT 0);
+      size INTEGER, status TEXT DEFAULT 'ok', error TEXT, extractor_version INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS symbol(
       id INTEGER PRIMARY KEY, file INTEGER NOT NULL, name TEXT NOT NULL, qualname TEXT NOT NULL,
       kind TEXT NOT NULL, line_start INTEGER, line_end INTEGER, sig TEXT, visibility TEXT,
@@ -115,6 +115,13 @@ def ensure_index_schema(conn):
       PRIMARY KEY(target_key, target_type));
     """
     )
+    # migrate an index built before the mtime+size sync fast-path: add the column if absent
+    # (NULL size just means "re-hash once", so it's backward-safe — no schema-version bump).
+    if "size" not in [r[1] for r in conn.execute("PRAGMA table_info(file)").fetchall()]:
+        try:
+            conn.execute("ALTER TABLE file ADD COLUMN size INTEGER")
+        except sqlite3.OperationalError:
+            pass
     mode = _search_mode(conn)
     if mode is None:
         mode = "fts5" if fts_available(conn) else "like"

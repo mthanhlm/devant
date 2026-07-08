@@ -24,7 +24,7 @@
       {
         "matcher": "Bash|Monitor",
         "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/lib/pre-tool-bash.sh\"", "if": "Bash(git *)" }
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/lib/pre-tool-bash.sh\"" }
         ]
       }
     ],
