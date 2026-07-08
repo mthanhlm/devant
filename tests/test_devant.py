@@ -1422,6 +1422,196 @@ class DrawioLint(unittest.TestCase):
         self.assertIn("score: 0", r.stdout)
 
 
+class DiagramBuild(unittest.TestCase):
+    """dec-041: compact spec -> styled graph -> hardened ELK. Validation fails loud with named
+    errors (no node/elkjs needed); the golden fixture is the real branchy 2-loop debate flow —
+    lint exit 0 IS the geometry assertion, plus narrative-order checks (no XML snapshots)."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def build(self, spec, out=None):
+        p = os.path.join(self.tmp.name, "spec.json")
+        with open(p, "w") as fh:
+            json.dump(spec, fh)
+        args = [sys.executable, BIN, "diagram-build", p]
+        if out:
+            args += ["-o", out]
+        return subprocess.run(args, capture_output=True, text=True)
+
+    def spine(self):
+        return {"kind": "activity", "title": "t",
+                "nodes": [{"id": "start", "type": "start"},
+                          {"id": "a", "type": "action", "label": "Do a"},
+                          {"id": "end", "type": "end"}],
+                "edges": [{"from": "start", "to": "a"}, {"from": "a", "to": "end"}]}
+
+    def test_unknown_kind_fails_loud(self):
+        r = self.build({"kind": "sequence", "title": "t", "nodes": [{"id": "a", "type": "action",
+                                                                     "label": "x"}]})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("unknown kind 'sequence'", r.stderr)
+
+    def test_missing_label_names_the_node_and_field(self):
+        s = self.spine()
+        del s["nodes"][1]["label"]
+        r = self.build(s)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("node 'a'", r.stderr)
+        self.assertIn("'label'", r.stderr)
+
+    def test_type_invalid_for_kind_lists_allowed(self):
+        s = self.spine()
+        s["nodes"][1]["type"] = "container"  # a c4 type in an activity diagram
+        r = self.build(s)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not valid for kind 'activity'", r.stderr)
+        self.assertIn("decision", r.stderr)
+
+    def test_decision_branch_without_guard_fails(self):
+        s = self.spine()
+        s["nodes"].insert(2, {"id": "d", "type": "decision", "label": "OK?"})
+        s["edges"] = [{"from": "start", "to": "a"}, {"from": "a", "to": "d"},
+                      {"from": "d", "to": "end"}]
+        r = self.build(s)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("leaving a decision needs its guard", r.stderr)
+
+    def test_loop_edge_without_label_fails(self):
+        s = self.spine()
+        s["edges"].append({"from": "a", "to": "a", "loop": True})
+        r = self.build(s)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("loop edge needs its repeat guard", r.stderr)
+
+    def test_undeclared_cycle_names_it_and_hints_loop(self):
+        s = self.spine()
+        s["nodes"].insert(2, {"id": "b", "type": "action", "label": "Do b"})
+        s["edges"] = [{"from": "start", "to": "a"}, {"from": "a", "to": "b"},
+                      {"from": "b", "to": "a"}, {"from": "b", "to": "end"}]
+        r = self.build(s)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("cycle among non-loop edges", r.stderr)
+        self.assertIn("a -> b -> a", r.stderr)
+        self.assertIn("loop:true", r.stderr)
+
+    DEBATE_SPEC = {
+        "kind": "activity", "title": "Design debate flow",
+        "nodes": [
+            {"id": "start", "type": "start"},
+            {"id": "route", "type": "action", "label": "Route request",
+             "note": "router: ground + push back"},
+            {"id": "design", "type": "action", "label": "Draft design",
+             "note": "architect: current vs proposed"},
+            {"id": "debate", "type": "action", "label": "Re-ground independently",
+             "note": "debate: fork, read-only"},
+            {"id": "web", "type": "decision", "label": "Web reachable?"},
+            {"id": "hypo", "type": "external", "label": "Tag unverified claims",
+             "note": "hypothesis label, no block"},
+            {"id": "chal", "type": "action", "label": "Emit challenges",
+             "note": "lens + question + evidence"},
+            {"id": "subst", "type": "decision", "label": "Substantive challenges?"},
+            {"id": "answer", "type": "action", "label": "Answer with evidence",
+             "note": "architect: concede or defend"},
+            {"id": "accept", "type": "decision", "label": "Both sides accept?"},
+            {"id": "rounds", "type": "decision", "label": "Round below 3?"},
+            {"id": "open", "type": "action", "label": "Crystallize open items",
+             "note": "for user decision"},
+            {"id": "gate", "type": "action", "label": "Present approval gate",
+             "note": "conceded / defended / open"},
+            {"id": "appr", "type": "decision", "label": "User approves?"},
+            {"id": "impl", "type": "success", "label": "Implement",
+             "note": "diagram + devant:code"},
+            {"id": "end", "type": "end"},
+        ],
+        "edges": [
+            {"from": "start", "to": "route"}, {"from": "route", "to": "design"},
+            {"from": "design", "to": "debate", "label": "always, no size gate"},
+            {"from": "debate", "to": "web"},
+            {"from": "web", "to": "hypo", "label": "[offline]"},
+            {"from": "web", "to": "chal", "label": "[online]"},
+            {"from": "hypo", "to": "chal"}, {"from": "chal", "to": "subst"},
+            {"from": "subst", "to": "answer", "label": "[yes]"},
+            {"from": "subst", "to": "gate", "label": "[none]"},
+            {"from": "answer", "to": "accept"},
+            {"from": "accept", "to": "gate", "label": "[yes]"},
+            {"from": "accept", "to": "rounds", "label": "[no]"},
+            {"from": "rounds", "to": "chal", "label": "[next round]", "loop": True},
+            {"from": "rounds", "to": "open", "label": "[cap hit]"},
+            {"from": "open", "to": "gate"}, {"from": "gate", "to": "appr"},
+            {"from": "appr", "to": "impl", "label": "[yes]"},
+            {"from": "appr", "to": "design", "label": "[rework]", "loop": True},
+            {"from": "impl", "to": "end"},
+        ],
+    }
+
+    def test_golden_two_loop_flow_builds_lint_clean_in_narrative_order(self):
+        out = os.path.join(self.tmp.name, "flow.drawio")
+        r = self.build(self.DEBATE_SPEC, out=out)
+        if r.returncode == 1 and ("node not found" in r.stderr or "elkjs not found" in r.stderr):
+            self.skipTest("node/elkjs unavailable")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("clean.", r.stdout)                          # the built-in lint gate passed
+        import xml.etree.ElementTree as ET
+        root = ET.parse(out).getroot()
+        y = {c.get("id"): float(c.find("mxGeometry").get("y"))
+             for c in root.iter("mxCell")
+             if c.get("vertex") == "1" and c.find("mxGeometry") is not None
+             and c.find("mxGeometry").get("y")}
+        spine = ["start", "route", "design", "debate", "web", "chal", "subst", "answer",
+                 "accept", "rounds", "gate", "appr", "impl", "end"]
+        for above, below in zip(spine, spine[1:]):                 # narrative order held, not
+            self.assertLess(y[above], y[below],                    # scrambled by cycle breaking
+                            "%s (y=%s) should sit above %s (y=%s)"
+                            % (above, y[above], below, y[below]))
+        edges = {c.get("id"): c for c in root.iter("mxCell") if c.get("edge") == "1"}
+        loops = [c for c in edges.values() if "jumpStyle=arc" in (c.get("style") or "")]
+        self.assertEqual({(c.get("source"), c.get("target")) for c in loops},
+                         {("rounds", "chal"), ("appr", "design")})  # drawn in true direction
+        self.assertEqual(self.lint(out).returncode, 0)              # independent lint agrees
+        lx = float(next(c for c in root.iter("mxCell") if c.get("id") == "legend")
+                   .find("mxGeometry").get("x"))
+        flow_right = max(float(c.find("mxGeometry").get("x", "0"))
+                         + float(c.find("mxGeometry").get("width", "0"))
+                         for c in root.iter("mxCell")
+                         if c.get("vertex") == "1" and c.get("id") != "legend"
+                         and c.find("mxGeometry") is not None and c.find("mxGeometry").get("x"))
+        self.assertGreaterEqual(lx, flow_right)                     # legend outside the flow bbox
+
+    def lint(self, path):
+        return subprocess.run([sys.executable, BIN, "drawio-lint", path],
+                              capture_output=True, text=True)
+
+    def test_layout_leaves_edgeless_legend_in_place(self):
+        # dec-041: a legend fed to ELK gets dragged into a layer; layout must exclude it
+        xml = ('<mxfile host="devant"><diagram name="t" id="t"><mxGraphModel gridSize="10">'
+               '<root><mxCell id="0" /><mxCell id="1" parent="0" />'
+               '<mxCell id="a" value="a" style="rounded=1;" vertex="1" parent="1">'
+               '<mxGeometry x="100" y="100" width="160" height="70" as="geometry" /></mxCell>'
+               '<mxCell id="b" value="b" style="rounded=1;" vertex="1" parent="1">'
+               '<mxGeometry x="100" y="300" width="160" height="70" as="geometry" /></mxCell>'
+               '<mxCell id="legend" value="Legend" style="rounded=0;" vertex="1" parent="1">'
+               '<mxGeometry x="700" y="40" width="200" height="100" as="geometry" /></mxCell>'
+               '<mxCell id="e" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" '
+               'parent="1" source="a" target="b">'
+               '<mxGeometry relative="1" as="geometry" /></mxCell>'
+               '</root></mxGraphModel></diagram></mxfile>')
+        p = os.path.join(self.tmp.name, "d.drawio")
+        with open(p, "w") as fh:
+            fh.write(xml)
+        r = subprocess.run([sys.executable, BIN, "layout", p, "--preset", "verticalFlow"],
+                           capture_output=True, text=True)
+        if r.returncode == 1 and ("node not found" in r.stderr or "elkjs not found" in r.stderr):
+            self.skipTest("node/elkjs unavailable")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        import xml.etree.ElementTree as ET
+        geo = {c.get("id"): c.find("mxGeometry")
+               for c in ET.parse(p).getroot().iter("mxCell") if c.get("vertex") == "1"}
+        self.assertEqual((geo["legend"].get("x"), geo["legend"].get("y")), ("700", "40"))
+
+
 class DrawioPreview(unittest.TestCase):
     """dec-022 pure parts: the viewer-URL encoder must round-trip exactly (the viewer raw-inflates
     then decodeURIComponents), and browser resolution prefers the onboard-installed shell."""

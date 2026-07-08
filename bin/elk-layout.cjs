@@ -12,9 +12,17 @@ try {
   process.exit(3);
 }
 
+// Cycle-breaking + model-order hints (dec-041): activity flows legitimately carry loop
+// back-edges; without these, ELK's greedy cycle breaking may reverse forward edges and
+// scramble the narrative order the caller authored the nodes/edges in.
+const LAYERED_ORDER = {
+  'elk.layered.cycleBreaking.strategy': 'GREEDY_MODEL_ORDER',
+  'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+};
+
 const PRESETS = {
-  verticalFlow:   { 'elk.algorithm': 'layered', 'elk.direction': 'DOWN' },
-  horizontalFlow: { 'elk.algorithm': 'layered', 'elk.direction': 'RIGHT' },
+  verticalFlow:   Object.assign({ 'elk.algorithm': 'layered', 'elk.direction': 'DOWN' }, LAYERED_ORDER),
+  horizontalFlow: Object.assign({ 'elk.algorithm': 'layered', 'elk.direction': 'RIGHT' }, LAYERED_ORDER),
   verticalTree:   { 'elk.algorithm': 'mrtree', 'elk.direction': 'DOWN' },
   horizontalTree: { 'elk.algorithm': 'mrtree', 'elk.direction': 'RIGHT' },
   radialTree:     { 'elk.algorithm': 'radial' },
@@ -44,7 +52,13 @@ process.stdin.on('end', () => {
       'elk.spacing.edgeNode': '25',
     }, opts),
     children: req.nodes.map((n) => ({ id: n.id, width: n.width, height: n.height })),
-    edges: req.edges.map((e, i) => ({ id: '__e' + i, sources: [e.source], targets: [e.target] })),
+    // e.label ({text,width,height}, metrics computed by the Python caller) makes ELK reserve
+    // inter-layer space for the label; ELK's own label positions are discarded (only node
+    // positions flow back), so this never fights draw.io's label placement.
+    edges: req.edges.map((e, i) => ({
+      id: '__e' + i, sources: [e.source], targets: [e.target],
+      labels: e.label ? [e.label] : undefined,
+    })),
   };
   new ELK().layout(graph).then((res) => {
     const positions = {};

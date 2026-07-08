@@ -558,6 +558,34 @@ def _node_env():
     return env
 
 
+def _edge_label_metrics(value, style):
+    """{text,width,height} for an edge label, sized with the lint's own font metrics so ELK
+    reserves real inter-layer space for it — or None when the edge is unlabelled."""
+    lines = _label_lines(value)
+    if not lines:
+        return None
+    size = _font_px(_drawio_style(style))
+    return {"text": lines[0],
+            "width": max(_text_w(ln, size) for ln in lines),
+            "height": len(lines) * _line_h(size)}
+
+
+def _run_elk(preset, nodes, edges):
+    """Run the elkjs driver on a logical graph; returns {id: {x, y}} or raises RuntimeError
+    with the driver's message (node missing, elkjs missing, layout failure)."""
+    node_bin = shutil.which("node")
+    if not node_bin:
+        raise RuntimeError("node not found — layout needs Node.js (e.g. via nvm), "
+                           "then: npm i -g elkjs")
+    script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "elk-layout.cjs")
+    proc = subprocess.run([node_bin, script],
+                          input=json.dumps({"preset": preset, "nodes": nodes, "edges": edges}),
+                          capture_output=True, text=True, env=_node_env(), timeout=60)
+    if proc.returncode:
+        raise RuntimeError(proc.stderr.strip() or "elk layout failed")
+    return json.loads(proc.stdout)["positions"]
+
+
 def cmd_layout(args):
     """Auto-place the top-level nodes of a .drawio with real ELK (elkjs via node). Python owns
     all XML (stdlib); the node driver only computes positions. Nested cells move with their
@@ -591,9 +619,6 @@ def cmd_layout(args):
             continue
         nodes.append({"id": c.get("id"), "width": w, "height": h})
         geos[c.get("id")] = geo
-    if len(nodes) < 2:
-        print("nothing to lay out (fewer than 2 top-level nodes)")
-        return 0
 
     def top_ancestor(cid):
         seen = set()
@@ -610,22 +635,26 @@ def cmd_layout(args):
             continue
         s, t = top_ancestor(c.get("source")), top_ancestor(c.get("target"))
         if s and t and s != t:
-            edges.append({"source": s, "target": t})
+            e = {"source": s, "target": t}
+            label = _edge_label_metrics(c.get("value"), c.get("style"))
+            if label:
+                e["label"] = label
+            edges.append(e)
             edge_cells.append(c)
 
-    node_bin = shutil.which("node")
-    if not node_bin:
-        sys.stderr.write("devant: node not found — layout needs Node.js "
-                         "(e.g. via nvm), then: npm i -g elkjs\n")
+    # A vertex no edge touches (a legend, a caption) is not part of the flow — feeding it to
+    # ELK drags it into a layer and the flow around it (dec-041). Leave it where it was placed.
+    connected = {e["source"] for e in edges} | {e["target"] for e in edges}
+    nodes = [n for n in nodes if n["id"] in connected]
+    if len(nodes) < 2:
+        print("nothing to lay out (fewer than 2 connected top-level nodes)")
+        return 0
+
+    try:
+        positions = _run_elk(args.preset, nodes, edges)
+    except RuntimeError as exc:
+        sys.stderr.write("devant: %s\n" % exc)
         return 1
-    script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "elk-layout.cjs")
-    proc = subprocess.run([node_bin, script],
-                          input=json.dumps({"preset": args.preset, "nodes": nodes, "edges": edges}),
-                          capture_output=True, text=True, env=_node_env(), timeout=60)
-    if proc.returncode:
-        sys.stderr.write(proc.stderr or "devant: elk layout failed\n")
-        return 1
-    positions = json.loads(proc.stdout)["positions"]
     margin = 40
     for nid, p in positions.items():
         g = geos.get(nid)
@@ -645,3 +674,300 @@ def cmd_layout(args):
     print("laid out %d node(s), %d edge(s) with ELK '%s' — now run: devant drawio-lint %s --fix"
           % (len(nodes), len(edges), args.preset, path))
     return 0
+
+
+# ------------------------------------------------------ diagram-build (dec-041)
+# The model used to hand-author full mxGraph XML (~4k tokens for a 16-node flow) and the ELK
+# pass then scrambled it. Here the model writes a compact logical spec; ELK owns ALL geometry
+# (no bespoke routing — settled by debate), styles/legend come from the guide's one style
+# system, and the lint gate runs before the command reports success.
+
+_EDGE = "edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#666666;"
+_EDGE_LBL = _EDGE + "fontFamily=Helvetica;fontSize=12;fontColor=#555555;labelBackgroundColor=#FFFFFF;"
+_EDGE_LOOP = _EDGE_LBL + "jumpStyle=arc;jumpSize=10;exitX=1;exitY=0.5;entryX=1;entryY=0.5;"
+_BOX = "rounded=1;whiteSpace=wrap;html=1;fontFamily=Helvetica;fontSize=15;strokeWidth=2;"
+
+_NODE_STYLES = {
+    "start": "ellipse;fillColor=#000000;strokeColor=#000000;html=1;",
+    "end": "ellipse;fillColor=none;strokeColor=#000000;strokeWidth=2;html=1;",
+    "decision": "rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;"
+                "fontFamily=Helvetica;fontSize=15;strokeWidth=2;",
+    "action": _BOX + "fillColor=#DAE8FC;strokeColor=#6C8EBF;",
+    "success": _BOX + "fillColor=#D5E8D4;strokeColor=#82B366;",
+    "error": _BOX + "fillColor=#F8CECC;strokeColor=#B85450;",
+    "external": _BOX + "fillColor=#F5F5F5;strokeColor=#666666;",
+    "actor": _BOX + "fillColor=#F5F5F5;strokeColor=#666666;",
+    "system": _BOX + "fillColor=#DAE8FC;strokeColor=#6C8EBF;",
+    "container": _BOX + "fillColor=#DAE8FC;strokeColor=#6C8EBF;",
+    "store": "shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;"
+             "fillColor=#E1D5E7;strokeColor=#9673A6;fontFamily=Helvetica;fontSize=15;strokeWidth=2;",
+}
+_NODE_SIZES = {"start": (30, 30), "end": (30, 30), "decision": (140, 80), "actor": (170, 60),
+               "system": (200, 80), "container": (180, 70), "store": (180, 90)}
+_KIND_TYPES = {
+    "activity": {"start", "end", "action", "decision", "success", "error", "external"},
+    "c4-context": {"actor", "system", "external"},
+    "c4-container": {"actor", "container", "store", "external"},
+}
+_LEGEND_ROLES = [  # (type, colour square, caption) — only roles the spec used are listed
+    ("action", "#6C8EBF", "action"), ("success", "#82B366", "success"),
+    ("error", "#B85450", "error path"), ("external", "#666666", "external / degraded"),
+    ("system", "#6C8EBF", "system"), ("container", "#6C8EBF", "container"),
+    ("store", "#9673A6", "data store"), ("actor", "#666666", "person / external"),
+]
+
+
+def _req(obj, what, *fields):
+    for f in fields:
+        if obj.get(f) in (None, "", [], {}):
+            raise ValueError("%s: missing required field %r" % (what, f))
+
+
+def _find_cycle(ids, adj):
+    """First cycle in the directed graph as [a, b, …, a], or None. Iterative DFS, stdlib."""
+    color, order = {i: 0 for i in ids}, list(ids)
+    for root in order:
+        if color[root]:
+            continue
+        stack = [(root, iter(adj.get(root, ())))]
+        color[root] = 1
+        while stack:
+            nid, it = stack[-1]
+            nxt = next(it, None)
+            if nxt is None:
+                color[nid] = 2
+                stack.pop()
+            elif color[nxt] == 1:
+                path = [s for s, _ in stack]
+                return path[path.index(nxt):] + [nxt]
+            elif color[nxt] == 0:
+                color[nxt] = 1
+                stack.append((nxt, iter(adj.get(nxt, ()))))
+    return None
+
+
+def _fit(lines, size, w, h):
+    """Grow (w, h) minimally until the wrapped label passes the lint's own spill metrics
+    (_vertex_label_rect/_spills), so generated nodes are label-clean by construction."""
+    while True:
+        cap = max(w - 8, 20)
+        n = sum(max(1, int((_text_w(ln, size) + cap - 1) // cap)) for ln in lines)
+        if n * _line_h(size) <= h + 2:
+            return w, h
+        if w < 300:
+            w += 20
+        else:
+            h += DRAWIO_GRID
+
+
+def _value_lines(node):
+    if node["type"] in ("start", "end"):
+        return []
+    return [node["label"]] + (["[%s]" % node["note"]] if node.get("note") else [])
+
+
+def _value_html(node):
+    lines = _value_lines(node)
+    if not lines:
+        return ""
+    head = lines[0] if node["type"] == "decision" else "<b>%s</b>" % lines[0]
+    if len(lines) == 1:
+        return head
+    return '%s<br><font color="#555555">%s</font>' % (head, lines[1])
+
+
+def _legend_lines(kind, used, any_guard):
+    lines = ["<b>Legend</b>"]
+    if kind == "activity":
+        lines.append("● start  ◎ end  ◆ decision")
+    swatches = ['<font color="%s">■</font> %s' % (c, cap)
+                for t, c, cap in _LEGEND_ROLES if t in used]
+    lines.extend("  ".join(swatches[i:i + 2]) for i in range(0, len(swatches), 2))
+    if kind == "activity" and any_guard:
+        lines.append("[guard] on branches")
+    elif kind != "activity":
+        lines.append("→ labelled with the interaction")
+    return lines
+
+
+def _build_diagram(spec):
+    if not isinstance(spec, dict):
+        raise ValueError("spec must be a JSON object {kind, title, nodes, edges}")
+    _req(spec, "spec", "kind", "title", "nodes")
+    kind = spec["kind"]
+    if kind not in _KIND_TYPES:
+        raise ValueError("unknown kind %r (supported: %s)" % (kind, ", ".join(sorted(_KIND_TYPES))))
+    allowed = _KIND_TYPES[kind]
+    edges = spec.get("edges") or []
+    nodes = {}
+    for n in spec["nodes"]:
+        if not isinstance(n, dict):
+            raise ValueError("node must be an object, got %r" % (n,))
+        _req(n, "node %r" % n.get("id"), "id", "type")
+        nid, ntype = n["id"], n["type"]
+        if ntype not in allowed:
+            raise ValueError("node %r: type %r not valid for kind %r (allowed: %s)"
+                             % (nid, ntype, kind, ", ".join(sorted(allowed))))
+        if ntype not in ("start", "end"):
+            _req(n, "node %r" % nid, "label")
+        if nid in nodes or nid in ("0", "1", "legend"):
+            raise ValueError("duplicate or reserved node id %r" % nid)
+        nodes[nid] = n
+
+    fwd, loops = [], []
+    for i, e in enumerate(edges):
+        _req(e, "edge #%d" % i, "from", "to")
+        for end in ("from", "to"):
+            if e[end] not in nodes:
+                raise ValueError("edge #%d: unknown node %r" % (i, e[end]))
+        if e.get("loop"):
+            if not e.get("label"):
+                raise ValueError("edge %s->%s: a loop edge needs its repeat guard as the label "
+                                 "(e.g. '[retry ≤ 3]')" % (e["from"], e["to"]))
+            loops.append(e)
+        else:
+            if nodes[e["from"]]["type"] == "decision" and not e.get("label"):
+                raise ValueError("edge %s->%s: an edge leaving a decision needs its guard as "
+                                 "the label (e.g. '[yes]')" % (e["from"], e["to"]))
+            fwd.append(e)
+    adj = {}
+    for e in fwd:
+        adj.setdefault(e["from"], []).append(e["to"])
+    cyc = _find_cycle(list(nodes), adj)
+    if cyc:
+        raise ValueError("cycle among non-loop edges: %s — mark the back-edge with loop:true"
+                         % " -> ".join(cyc))
+
+    dims = {}
+    for nid, n in nodes.items():
+        w, h = _NODE_SIZES.get(n["type"], (170, 70))
+        lines = _label_lines(_value_html(n))
+        if lines:
+            w, h = _fit(lines, 15, w, h)
+        dims[nid] = (w, h)
+
+    elk_nodes = [{"id": nid, "width": dims[nid][0], "height": dims[nid][1]} for nid in nodes]
+    elk_edges = []
+    for e in fwd + loops:
+        # Loop edges are declared, so ELK never has to guess the cycle break: hand it the
+        # acyclic graph by pre-reversing them (greedy cycle breaking picks a non-declared
+        # edge when cycles overlap — observed on the 2-loop fixture). Only node positions
+        # come back; the drawn edge keeps its true direction and arrow.
+        loop = bool(e.get("loop"))
+        d = {"source": e["to" if loop else "from"], "target": e["from" if loop else "to"]}
+        if e.get("label"):
+            d["label"] = {"text": e["label"], "width": _text_w(e["label"], 12),
+                          "height": _line_h(12)}
+        elk_edges.append(d)
+    positions = _run_elk("verticalFlow", elk_nodes, elk_edges)
+
+    margin = 40
+    pos = {nid: (_snap(float(p["x"]) + margin), _snap(float(p["y"]) + margin))
+           for nid, p in positions.items()}
+
+    mxfile = ET.Element("mxfile", host="devant")
+    slug = re.sub(r"[^a-z0-9]+", "-", spec["title"].lower()).strip("-") or "diagram"
+    diagram = ET.SubElement(mxfile, "diagram", name=spec["title"], id=slug)
+    model = ET.SubElement(diagram, "mxGraphModel", dx="900", dy="760", grid="1", gridSize="10",
+                          guides="1", tooltips="1", connect="1", arrows="1", fold="1", page="1",
+                          pageScale="1", math="0", shadow="0")
+    groot = ET.SubElement(model, "root")
+    ET.SubElement(groot, "mxCell", id="0")
+    ET.SubElement(groot, "mxCell", id="1", parent="0")
+
+    def emit(cid, value, style, x, y, w, h):
+        c = ET.SubElement(groot, "mxCell", id=cid, value=value, style=style,
+                          vertex="1", parent="1")
+        g = ET.SubElement(c, "mxGeometry", x=str(x), y=str(y), width=str(w), height=str(h))
+        g.set("as", "geometry")
+
+    for nid, n in nodes.items():
+        (x, y), (w, h) = pos[nid], dims[nid]
+        emit(nid, _value_html(n), _NODE_STYLES[n["type"]], x, y, w, h)
+        if n["type"] == "end":  # final node = ring + concentric core, placed as one
+            emit(nid + "__core", "", _NODE_STYLES["start"], x + 7, y + 7, 16, 16)
+
+    boxes = [(pos[nid][0], pos[nid][1], dims[nid][0], dims[nid][1]) for nid in nodes]
+    placed = []  # label rects already chosen — labels must clear each other too
+
+    def label_param(e):
+        """(ride, offset) that clears every node AND placed label under the lint's own label
+        math (a label anchors at t=0.5+x/2 along the source→target line, plus its offset
+        point). Nothing clears → default; the lint gate then reports it for a hand fix."""
+        lw, lh = _text_w(e["label"], 12), _line_h(12)
+        (sx, sy), (sw, sh) = pos[e["from"]], dims[e["from"]]
+        (tx, ty), (tw, th) = pos[e["to"]], dims[e["to"]]
+        sx, sy, tx, ty = sx + sw / 2, sy + sh / 2, tx + tw / 2, ty + th / 2
+        # UML puts a guard near its decision, so out-edges of a decision prefer ride spots
+        # close to the source (t→0 ⇔ gx→-1). Loop back-edges ride their side lane, where the
+        # mid-edge point sits in clear lane space — so loops prefer the middle, as does the rest.
+        home = -0.7 if nodes[e["from"]]["type"] == "decision" and not e.get("loop") else 0.0
+        for gx in sorted((k / 20.0 for k in range(-19, 20)), key=lambda v: abs(v - home)):
+            for off in ((0, 0), (lw / 2 + 20, 0), (-lw / 2 - 20, 0)):
+                t = 0.5 + gx / 2
+                rect = (sx + t * (tx - sx) + off[0] - lw / 2,
+                        sy + t * (ty - sy) + off[1] - lh / 2, lw, lh)
+                # pad -12 demands a 12px clear gap — stricter than the lint gate (pad 6,
+                # which tolerates small overlaps), so a chosen spot clears it with margin
+                if not any(_rect_overlap(rect, b, -12) for b in boxes + placed):
+                    placed.append(rect)
+                    return (gx, off)
+        placed.append((sx + 0.5 * (tx - sx) - lw / 2, sy + 0.5 * (ty - sy) - lh / 2, lw, lh))
+        return None
+
+    for i, e in enumerate(fwd + loops):
+        style = _EDGE_LOOP if e.get("loop") else (_EDGE_LBL if e.get("label") else _EDGE)
+        c = ET.SubElement(groot, "mxCell", id="e%d" % i, style=style, edge="1", parent="1",
+                          source=e["from"], target=e["to"])
+        g = ET.SubElement(c, "mxGeometry", relative="1")
+        g.set("as", "geometry")
+        if e.get("label"):
+            c.set("value", e["label"])
+            spot = label_param(e)
+            if spot is not None:
+                gx, off = spot
+                if gx:
+                    g.set("x", str(gx))
+                if off != (0, 0):
+                    p = ET.SubElement(g, "mxPoint", x=str(int(off[0])), y=str(int(off[1])))
+                    p.set("as", "offset")
+
+    max_x = max(pos[nid][0] + dims[nid][0] for nid in nodes)
+    max_y = max(pos[nid][1] + dims[nid][1] for nid in nodes)
+    if spec.get("legend", True):
+        used = {n["type"] for n in nodes.values()}
+        lines = _legend_lines(kind, used, any(e.get("label") for e in edges))
+        lw, lh = _fit([_TAG_RE.sub("", ln) for ln in lines], 12, 220, 40)
+        emit("legend", "<br>".join(lines),
+             "rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;fillColor=#FFFFFF;"
+             "strokeColor=#CCCCCC;fontFamily=Helvetica;fontSize=12;spacingLeft=6;spacingTop=4;",
+             _snap(max_x + margin), _snap(min(p[1] for p in pos.values())), lw, lh)
+        max_x += margin + lw
+    model.set("pageWidth", str(_snap(max_x + margin)))
+    model.set("pageHeight", str(_snap(max_y + margin)))
+    return mxfile, len(nodes), len(edges)
+
+
+def cmd_diagram_build(args):
+    """Emit a styled, ELK-laid-out .drawio from a compact JSON spec (dec-041), then run the
+    lint gate on the result — exit 0 only when the generated diagram is clean."""
+    try:
+        with open(args.spec, encoding="utf-8") as fh:
+            spec = json.load(fh)
+    except (OSError, ValueError) as exc:
+        sys.stderr.write("devant: cannot read spec %s: %s\n" % (args.spec, exc))
+        return 1
+    try:
+        mxfile, n_nodes, n_edges = _build_diagram(spec)
+    except (ValueError, RuntimeError) as exc:
+        sys.stderr.write("devant: diagram-build: %s\n" % exc)
+        return 1
+    out = args.out or (os.path.splitext(args.spec)[0] + ".drawio")
+    with open(out, "w", encoding="utf-8") as fh:
+        fh.write(ET.tostring(mxfile, encoding="unicode"))
+        fh.write("\n")
+    print("diagram-build: wrote %s (%d nodes, %d edges)" % (out, n_nodes, n_edges))
+
+    class _LintArgs:
+        file, fix, score = out, True, False
+    return cmd_drawio_lint(_LintArgs)

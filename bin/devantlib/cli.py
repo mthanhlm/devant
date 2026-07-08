@@ -138,6 +138,12 @@ def build_parser():
                     help="ELK algorithm preset (default: verticalFlow)")
     ly.set_defaults(_mod="drawio", _func="cmd_layout")
 
+    db = sub.add_parser("diagram-build",
+                        help="emit a styled, ELK-laid-out .drawio from a compact JSON diagram spec")
+    db.add_argument("spec", help="path to a JSON spec ({kind, title, nodes, edges})")
+    db.add_argument("-o", "--out", help="output .drawio path (default: <spec>.drawio)")
+    db.set_defaults(_mod="drawio", _func="cmd_diagram_build")
+
     dp = sub.add_parser("drawio-preview",
                         help="render a .drawio to PNG via headless Chrome for a visual check "
                              "(needs network for the viewer JS)")

@@ -4,9 +4,12 @@ The style system and two ready-to-copy skeletons the `diagram` skill uses. Goal:
 devant draws looks like part of one set — clean, consistent, and readable by a developer *and* a
 non-technical stakeholder. Follow this; don't freehand styles.
 
-Node placement comes from real ELK: `devant layout <file> --preset <p>` (elkjs via node — SKILL
-step 4); no draw.io CLI or MCP is used (dec-012). Authoring conventions here are informed by the
-official draw.io skill (jgraph/drawio-mcp, Apache-2.0) and Agents365-ai/drawio-skill (MIT).
+The default authoring path is a compact JSON spec into `devant diagram-build` (§6 — it emits this
+style system and runs ELK + the lint itself, dec-041). Sections §1–§5 govern the raw-XML escape
+hatch (shapes the spec can't say: swimlanes, fork/join, C4 boundaries), where node placement comes
+from `devant layout <file> --preset <p>` (elkjs via node); no draw.io CLI or MCP is used (dec-012).
+Authoring conventions here are informed by the official draw.io skill (jgraph/drawio-mcp,
+Apache-2.0) and Agents365-ai/drawio-skill (MIT).
 
 A `.drawio` file is XML: `<mxfile>` → `<diagram>` → `<mxGraphModel>` → `<root>`. `<root>` always
 starts with cell `id="0"` and cell `id="1"` (the default layer); every shape/edge is a `<mxCell>`
@@ -393,7 +396,7 @@ Crossing or shape-piercing edges are what make a diagram look amateur. Keep them
   (bottom→top in a top-down diagram), reconsider node order first; only then add waypoints.
 
 Don't rely on eyeballing coordinates in your head — that's how overlaps and crooked nodes ship.
-Let ELK place the nodes (`devant layout <file> --preset <p>`, SKILL steps 4/6b), then run the
+Let ELK place the nodes (`devant layout <file> --preset <p>`, SKILL step 4), then run the
 deterministic check: `devant drawio-lint <file> --fix`. It
 straightens off-grid nodes, spreads real overlaps, and **exits non-zero** while any blocking defect
 remains — unresolved overlaps, **label collisions** (a spilled label reaching a sibling, labels on
@@ -412,7 +415,54 @@ CLI's `-e`/embed PNGs carry a **truncated IEND chunk** that vision APIs reject w
 (preview without `-e`); and on Linux **`--no-sandbox` must be the last drawio argument** — placed
 earlier it's parsed as the input filename.
 
-## 6. Checklist before saving
+## 6. The diagram spec — `devant diagram-build` (default path, dec-041)
+
+Author the *logical* diagram as a small JSON file; Python + ELK own every coordinate. Styles,
+sizing, guard/loop label placement, and the legend come from this guide by construction, and the
+command runs `drawio-lint` on its output — exit 0 means the diagram is already clean.
+
+```json
+{
+  "kind": "activity",
+  "title": "Checkout flow",
+  "nodes": [
+    {"id": "start", "type": "start"},
+    {"id": "cart",  "type": "action",   "label": "Add item to cart", "note": "cart service"},
+    {"id": "auth",  "type": "decision", "label": "Logged in?"},
+    {"id": "login", "type": "action",   "label": "Show login"},
+    {"id": "pay",   "type": "error",    "label": "Show error"},
+    {"id": "done",  "type": "success",  "label": "Create order"},
+    {"id": "end",   "type": "end"}
+  ],
+  "edges": [
+    {"from": "start", "to": "cart"},
+    {"from": "cart",  "to": "auth"},
+    {"from": "auth",  "to": "login", "label": "[no]"},
+    {"from": "auth",  "to": "done",  "label": "[yes]"},
+    {"from": "login", "to": "auth",  "label": "[retry]", "loop": true},
+    {"from": "done",  "to": "end"}
+  ]
+}
+```
+
+Rules the command enforces (fail-loud, named errors — never a silent guess):
+- **`kind`**: `activity` | `c4-context` | `c4-container`.
+- **Node `type` by kind** — activity: `start`, `end`, `action`, `decision`, `success`, `error`,
+  `external`; c4-context: `actor`, `system`, `external`; c4-container: `actor`, `container`,
+  `store`, `external`. `label` is required except on `start`/`end`; an optional `note` becomes the
+  grey bracketed sub-line (`[router: ground + push back]`, `[Container: FastAPI]`).
+- **Loops are declared, never inferred**: a repeat is `"loop": true` on the back-edge, with its
+  repeat guard as the `label`. A cycle among non-loop edges is a validation error naming the cycle
+  — ELK is handed an acyclic narrative, which is what keeps the flow top-down in spec order.
+- **Every decision branch carries its guard** as the edge `label` (`[yes]`/`[no]`/`[cap hit]`).
+- Node/edge **order is narrative order** — list them in execution order; the layout follows it.
+- `"legend": false` omits the auto-legend (it's on by default and placed outside the flow).
+
+The spec is a throwaway intermediate: keep it out of the repo; the `.drawio` is the deliverable.
+Structural changes (add/remove/rename nodes or edges) re-run `diagram-build` from the edited spec;
+cosmetic hand fixes on the generated XML are fine, followed by `drawio-lint`.
+
+## 7. Checklist before saving
 - Every box/step maps to something real in codegraph — no invented components.
 - **Complete, not crowded**: every real branch, loop, and error path is shown, and nothing that
   doesn't change the reader's understanding is — a first-time reader needs no walkthrough.
@@ -425,5 +475,6 @@ earlier it's parsed as the input filename.
   (kebab-case slug). Update in place if it exists.
 - Well-formed XML (`python3 -c "import xml.dom.minidom,sys; xml.dom.minidom.parse(sys.argv[1])" <file>`)
   and confirmed it opens in draw.io / diagrams.net.
-- `devant layout` has placed the nodes (ELK), and `devant drawio-lint <file> --fix` exits 0 —
-  the geometry AND label-collision gate (SKILL step 6).
+- `devant diagram-build` exited 0 (spec path) — or, on the raw path, `devant layout` has placed
+  the nodes (ELK) and `devant drawio-lint <file> --fix` exits 0 — the geometry AND
+  label-collision gate (SKILL step 6).

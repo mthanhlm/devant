@@ -2,6 +2,40 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.17.0] - 2026-07-08
+
+Diagram pipeline speed + comprehensibility: spec-first generator over hardened ELK (dec-041/042).
+
+### Added
+- **`devant diagram-build <spec.json> [-o out.drawio]`** (new stdlib generator in `drawio.py`):
+  emits a styled, ELK-laid-out `.drawio` from a compact logical spec (kind, nodes with types,
+  edges with guards, loops **declared** via `loop:true`) and runs the `drawio-lint` gate itself —
+  exit 0 means the diagram is already clean. Measurement showed the tools were never the
+  bottleneck (layout 0.33s, lint 0.05s, preview 1.9s); the cost was model-time hand-authoring
+  ~13KB mxGraph XML plus a fix loop repairing defects the mandatory layout pass itself created.
+  A 16-node/2-loop flow now builds lint-clean first pass in ~0.5s from a ~620-token spec
+  (was ~3,300 tokens of XML). Declared loop edges are pre-reversed in the ELK input (dec-042) so
+  cycle breaking never guesses — narrative order is preserved in spec order; guard/loop labels
+  get a deterministic ride-position scan reusing the linter's own font metrics; the legend is
+  placed from the post-layout bounding box. Validation fails loud: undeclared cycles are named
+  (with the `loop:true` hint), decision branches must carry guards, unknown types list what's
+  allowed.
+
+### Changed
+- **`elk-layout.cjs` / `devant layout` hardened (dec-041)**: layered presets gain
+  `GREEDY_MODEL_ORDER` cycle breaking + `considerModelOrder=NODES_AND_EDGES` (authored order is
+  the narrative order); edge labels are passed through with real font-metric sizes so ELK
+  reserves inter-layer space for them; edge-less vertices (legends, captions) are excluded from
+  the graph and keep their coordinates instead of being dragged into a layer. Previously one
+  layout run scrambled a clean cyclic activity diagram (start node mid-canvas, 3 fresh label
+  collisions).
+- **Diagram skill workflow (`skills/diagram/SKILL.md`, dec-041)**: step 3 now authors a
+  throwaway `spec.json` and runs `diagram-build`; raw mxGraph XML authoring is demoted to an
+  escape hatch (swimlanes, fork/join bars, C4 boundaries). The self-defeating "re-run layout
+  after each fix" instruction is deleted (it re-scrambled nodes and re-stripped waypoints every
+  round). The dec-023 3-round vision gate is unchanged. `references/drawio-guide.md` gains the
+  spec format section (§6).
+
 ## [0.16.0] - 2026-07-08
 
 Slide pipeline speed + quality: deterministic geometry generator (dec-040).
