@@ -1,7 +1,6 @@
 ---
 name: document
 user-invocable: false
-effort: medium
 allowed-tools: Bash(devant *)
 description: devant specialist (router-invoked): write or update docs grounded in the devant graph (code + intent)'s vision/audience. Updates in place; no stray files.
 ---

@@ -1,7 +1,6 @@
 ---
 name: intent
 user-invocable: false
-effort: low
 allowed-tools: Bash(devant *)
 disallowed-tools: Write, Edit, NotebookEdit
 description: devant specialist (router-invoked): inspect or update project intent — vision, direction, decisions, constraints, non-goals — via the devant CLI. Record decisions, add/retire rules, answer "why are we allowed to X".

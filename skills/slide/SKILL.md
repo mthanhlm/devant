@@ -1,7 +1,6 @@
 ---
 name: slide
 user-invocable: false
-effort: medium
 allowed-tools: Bash(soffice *), Bash(devant *), Bash(python3 *)
 description: devant specialist (router-invoked): build a business-professional slide deck — the deliverable is a single editable .pptx (hand-authored flat-ODP source + PDF visual-gate are throwaway intermediates), rendered via the LibreOffice CLI on a brand the user feeds as a small token file (a tasteful warm-neutral default is the fallback; bold flat colour, no gradient, no shadow, no cartoon), ideas shown as in-slide diagrams. 15 seconds per slide.
 ---

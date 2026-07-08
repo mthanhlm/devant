@@ -3,6 +3,7 @@ name: debate
 user-invocable: false
 context: fork
 agent: Explore
+model: opus
 effort: xhigh
 allowed-tools: Bash(devant *), WebSearch, WebFetch
 disallowed-tools: Write, Edit, NotebookEdit

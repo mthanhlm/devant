@@ -3,7 +3,6 @@ name: ask
 user-invocable: false
 context: fork
 agent: Explore
-effort: medium
 allowed-tools: Bash(devant *)
 description: devant specialist (router-invoked): read-only Q&A grounded in the devant graph (code + intent) — how/why/where, trace a flow, blast radius, why a decision was made. Never edits.
 ---

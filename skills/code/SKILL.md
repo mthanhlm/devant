@@ -1,7 +1,6 @@
 ---
 name: code
 user-invocable: false
-effort: high
 allowed-tools: Bash(devant *)
 description: devant specialist (router-invoked): make a verified code change — implement, fix, refactor, debug — grounded in the devant graph (code + intent), sized by blast radius, surgical, verified for logic. For substantial changes.
 ---

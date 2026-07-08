@@ -2,6 +2,16 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.15.1] - 2026-07-08
+
+### Changed
+- **Skill frontmatter (dec-039, amends dec-006)**: `effort:` pinning narrowed to `architect` and
+  `review` only; `ask`, `code`, `diagram`, `document`, `intent`, `onboard`, `router`, `slide` now
+  inherit the invoking session's model and effort tier with no pin at all. `debate` keeps
+  `effort: xhigh` and gains a new `model: opus` pin — the first model pin since dec-003/dec-006
+  removed model pins repo-wide — since adversarial cross-examination benefits from a fixed strong
+  model regardless of session tier.
+
 ## [0.15.0] - 2026-07-08
 
 A review-driven hardening pass plus the slide and debate redesigns.

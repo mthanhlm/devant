@@ -1,7 +1,6 @@
 ---
 name: router
 user-invocable: false
-effort: low
 allowed-tools: Bash(devant *)
 description: Entry point for any request on this codebase via /devant:run — answer a question, change code, write docs, or recall the project's direction/decisions. Grounds in the devant graph (code + intent), pushes back on debt, and dispatches to one specialist. Also the target of the /devant:run command.
 ---

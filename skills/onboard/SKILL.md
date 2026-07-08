@@ -1,7 +1,6 @@
 ---
 name: onboard
 disable-model-invocation: true
-effort: high
 allowed-tools: Bash(devant *)
 description: One-time project onboarding — build the devant graph index, scan the codebase to understand it, interview only the gaps a scan can't infer, and seed the local intent graph (vision, direction, non-goals, layering rules, conventions). Re-runnable to refresh. Target of /devant:onboard.
 ---

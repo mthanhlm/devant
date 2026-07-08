@@ -1,7 +1,6 @@
 ---
 name: diagram
 user-invocable: false
-effort: medium
 allowed-tools: Bash(devant *)
 description: devant specialist (router-invoked): draw professional draw.io diagrams grounded in the real codebase — C4 architecture or UML activity flow — clean mxGraph XML in docs/diagrams/, per references/drawio-guide.md.
 ---
