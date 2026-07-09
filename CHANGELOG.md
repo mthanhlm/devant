@@ -2,6 +2,18 @@
 
 Notable changes to devant. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.18.1] - 2026-07-09
+
+### Changed
+- **`work` §3 — honest verdict replaces gated push-back (dec-049)**: retitled "Verdict before
+  doing — a peer, not a servant". Every non-trivial proposal now earns an explicit
+  endorse/qualify/object verdict *even when no block rule is tripped* (the five hard triggers
+  become the floor for objection, not the only gate for judgement). Adds three tone rules: no
+  affirmation-reflex openers ("great idea"/"makes sense"), endorse only when grounded in a
+  file:line/intent rule/named consequence, and object grounded or say "no substantive objection" —
+  no decorative caveat tacked after the solution. Fixes reported sycophancy; realises the
+  "peer, not a servant" direction.
+
 ## [0.18.0] - 2026-07-09
 
 The dec-043 restructure (phases 0–4): per-turn injection cut ~94% (20–24KB → ≤1.5KB worst turn),

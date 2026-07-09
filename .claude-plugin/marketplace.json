@@ -9,7 +9,7 @@
       "name": "devant",
       "source": "./",
       "description": "An intent-aware coding teammate: onboards by scanning the repo with codegraph, captures the project's vision/direction/non-goals/rules as a local intent graph you own, grounds answers and edits in both, pushes back on debt before it lands, and stays out of your repo. One command, ceremony scaled to blast radius.",
-      "version": "0.18.0",
+      "version": "0.18.1",
       "category": "workflow",
       "keywords": [
         "codegraph",
